@@ -1,0 +1,481 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authenticated school user account with role-based access control.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 160 },
+        "role": {
+          "type": "string",
+          "enum": ["SUPER_ADMIN", "KEPALA_SEKOLAH", "KETUA_PELAKSANA", "GURU_PENDAMPING", "SISWA"]
+        },
+        "nipOrNisn": { "type": "string", "maxLength": 40 },
+        "className": { "type": "string", "maxLength": 40 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "email", "role", "status", "createdAt", "updatedAt"]
+    },
+    "UserInvite": {
+      "title": "UserInvite",
+      "description": "Pre-assigned role invitation keyed by verified email address.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 160 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "role": {
+          "type": "string",
+          "enum": ["SUPER_ADMIN", "KEPALA_SEKOLAH", "KETUA_PELAKSANA", "GURU_PENDAMPING", "SISWA"]
+        },
+        "nipOrNisn": { "type": "string", "maxLength": 40 },
+        "className": { "type": "string", "maxLength": 40 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "displayName", "role", "createdBy", "createdAt", "updatedAt"]
+    },
+    "SchoolProfile": {
+      "title": "SchoolProfile",
+      "description": "Official institutional profile of SMA Darul Ulum Kepohbaru Bojonegoro.",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string", "maxLength": 150 },
+        "npsn": { "type": "string", "maxLength": 30 },
+        "address": { "type": "string", "maxLength": 300 },
+        "district": { "type": "string", "maxLength": 80 },
+        "regency": { "type": "string", "maxLength": 80 },
+        "province": { "type": "string", "maxLength": 80 },
+        "postalCode": { "type": "string", "maxLength": 15 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 120 },
+        "website": { "type": "string", "maxLength": 150 },
+        "principalName": { "type": "string", "maxLength": 120 },
+        "principalNip": { "type": "string", "maxLength": 40 },
+        "academicYear": { "type": "string", "maxLength": 30 },
+        "logoUrl": { "type": "string", "maxLength": 500 },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["schoolName", "address", "principalName", "academicYear", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "Core co-curricular activity metadata and official identity.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "theme": { "type": "string", "maxLength": 300 },
+        "year": { "type": "number" },
+        "background": { "type": "string", "maxLength": 5000 },
+        "purpose": { "type": "string", "maxLength": 3000 },
+        "legalBasis": { "type": "string", "maxLength": 3000 },
+        "dayDate": { "type": "string", "maxLength": 100 },
+        "departureTime": { "type": "string", "maxLength": 60 },
+        "destination": { "type": "string", "maxLength": 200 },
+        "destinationAddress": { "type": "string", "maxLength": 300 },
+        "personInCharge": { "type": "string", "maxLength": 120 },
+        "chiefExecutive": { "type": "string", "maxLength": 120 },
+        "companionTeachersSummary": { "type": "string", "maxLength": 500 },
+        "participantCountTarget": { "type": "number" },
+        "fundingSource": { "type": "string", "maxLength": 300 },
+        "status": { "type": "string", "enum": ["Persiapan", "Berjalan", "Selesai"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "theme", "year", "dayDate", "destination", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student master data and parent contact for the co-curricular trip.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "nis": { "type": "string", "maxLength": 30 },
+        "name": { "type": "string", "maxLength": 120 },
+        "className": { "type": "string", "maxLength": 40 },
+        "gender": { "type": "string", "enum": ["L", "P"] },
+        "parentPhone": { "type": "string", "maxLength": 30 },
+        "participationStatus": { "type": "string", "enum": ["Terdaftar", "Hadir", "Izin", "Tidak Hadir"] },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "nis", "name", "className", "gender", "participationStatus", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Accompanying teacher roster and mentoring assignments.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "nipNuptk": { "type": "string", "maxLength": 40 },
+        "position": { "type": "string", "maxLength": 100 },
+        "mentoringTask": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "name", "position", "mentoringTask", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ActivityParticipant": {
+      "title": "ActivityParticipant",
+      "description": "Public participant roster mapping students to bus groups and attendance without parent PII.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "nis": { "type": "string", "maxLength": 30 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "className": { "type": "string", "maxLength": 40 },
+        "busGroup": { "type": "string", "maxLength": 60 },
+        "attendanceStatus": { "type": "string", "enum": ["Terdaftar", "Hadir", "Izin", "Sakit"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "studentId", "nis", "studentName", "className", "attendanceStatus", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ActivitySchedule": {
+      "title": "ActivitySchedule",
+      "description": "Chronological agenda and rundown items for the educational visit.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orderNo": { "type": "number" },
+        "timeRange": { "type": "string", "maxLength": 60 },
+        "activityTitle": { "type": "string", "maxLength": 200 },
+        "location": { "type": "string", "maxLength": 160 },
+        "personInCharge": { "type": "string", "maxLength": 120 },
+        "notes": { "type": "string", "maxLength": 400 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "orderNo", "timeRange", "activityTitle", "location", "personInCharge", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ActivityJournal": {
+      "title": "ActivityJournal",
+      "description": "Field execution journal entries logged by accompanying teachers.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "maxLength": 40 },
+        "time": { "type": "string", "maxLength": 40 },
+        "location": { "type": "string", "maxLength": 160 },
+        "description": { "type": "string", "maxLength": 3000 },
+        "attendeesCount": { "type": "number" },
+        "condition": { "type": "string", "enum": ["Lancar", "Terkendali", "Perlu Perhatian"] },
+        "companionNotes": { "type": "string", "maxLength": 1500 },
+        "obstacles": { "type": "string", "maxLength": 1500 },
+        "solutions": { "type": "string", "maxLength": 1500 },
+        "authorUid": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "date", "time", "location", "description", "attendeesCount", "condition", "authorUid", "authorName", "createdAt", "updatedAt"]
+    },
+    "ActivityDocumentation": {
+      "title": "ActivityDocumentation",
+      "description": "Photo and video documentation items organized into 8 visit categories.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "caption": { "type": "string", "maxLength": 1000 },
+        "mediaType": { "type": "string", "enum": ["photo", "video"] },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Persiapan keberangkatan",
+            "Perjalanan",
+            "Kunjungan Makam Bung Karno",
+            "Kunjungan Museum Bung Karno",
+            "Kegiatan edukasi",
+            "Diskusi dan refleksi",
+            "Foto bersama",
+            "Penutupan kegiatan"
+          ]
+        },
+        "capturedDate": { "type": "string", "maxLength": 40 },
+        "location": { "type": "string", "maxLength": 160 },
+        "fileUrl": { "type": "string", "maxLength": 2000 },
+        "storagePath": { "type": "string", "maxLength": 500 },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "fileSize": { "type": "number" },
+        "isAllowedForStudent": { "type": "boolean" },
+        "uploadedByUid": { "type": "string", "maxLength": 128 },
+        "uploadedByName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "title", "caption", "mediaType", "category", "capturedDate", "location", "fileUrl", "isAllowedForStudent", "uploadedByUid", "uploadedByName", "createdAt", "updatedAt"]
+    },
+    "StudentReflection": {
+      "title": "StudentReflection",
+      "description": "Student learning observations, historical reflections, and teacher grading.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "className": { "type": "string", "maxLength": 40 },
+        "newKnowledge": { "type": "string", "maxLength": 2500 },
+        "historicalValues": { "type": "string", "maxLength": 2500 },
+        "soekarnoExemplar": { "type": "string", "maxLength": 2500 },
+        "memorableExperience": { "type": "string", "maxLength": 2500 },
+        "nationalismApplication": { "type": "string", "maxLength": 2500 },
+        "learningConclusion": { "type": "string", "maxLength": 2500 },
+        "teacherScore": { "type": "number" },
+        "teacherFeedback": { "type": "string", "maxLength": 1000 },
+        "reviewStatus": { "type": "string", "enum": ["Menunggu Penilaian", "Dinilai"] },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "reviewedByName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "studentUid", "studentName", "className", "newKnowledge", "historicalValues", "soekarnoExemplar", "learningConclusion", "reviewStatus", "createdAt", "updatedAt"]
+    },
+    "ActivityEvaluation": {
+      "title": "ActivityEvaluation",
+      "description": "Program evaluation assessing goal alignment, participation, obstacles, and recommendations.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "goalAlignment": { "type": "string", "maxLength": 1500 },
+        "studentParticipationLevel": { "type": "string", "maxLength": 1500 },
+        "participantDiscipline": { "type": "string", "maxLength": 1500 },
+        "activitySuccessRate": { "type": "number" },
+        "supportingFactors": { "type": "string", "maxLength": 2000 },
+        "obstacles": { "type": "string", "maxLength": 2000 },
+        "solutions": { "type": "string", "maxLength": 2000 },
+        "recommendations": { "type": "string", "maxLength": 2000 },
+        "evaluatorUid": { "type": "string", "maxLength": 128 },
+        "evaluatorName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "goalAlignment", "studentParticipationLevel", "participantDiscipline", "activitySuccessRate", "evaluatorUid", "evaluatorName", "createdAt", "updatedAt"]
+    },
+    "ActivityReport": {
+      "title": "ActivityReport",
+      "description": "Structured automatic and editable accountability report (BAB I - BAB V & Lampiran).",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 250 },
+        "reportNumber": { "type": "string", "maxLength": 100 },
+        "academicYear": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["Draft", "Menunggu Persetujuan", "Disetujui", "Revisi"] },
+        "bab1Background": { "type": "string", "maxLength": 6000 },
+        "bab1Basis": { "type": "string", "maxLength": 4000 },
+        "bab1Purpose": { "type": "string", "maxLength": 4000 },
+        "bab1Benefits": { "type": "string", "maxLength": 4000 },
+        "bab2Identity": { "type": "string", "maxLength": 4000 },
+        "bab2ScheduleTimePlace": { "type": "string", "maxLength": 4000 },
+        "bab2ParticipantsSummary": { "type": "string", "maxLength": 4000 },
+        "bab2TeachersSummary": { "type": "string", "maxLength": 4000 },
+        "bab2ExecutionNarrative": { "type": "string", "maxLength": 6000 },
+        "bab3VisitResults": { "type": "string", "maxLength": 6000 },
+        "bab3StudentObservations": { "type": "string", "maxLength": 6000 },
+        "bab3NationalismValues": { "type": "string", "maxLength": 4000 },
+        "bab3ReflectionSummary": { "type": "string", "maxLength": 4000 },
+        "bab4Evaluation": { "type": "string", "maxLength": 4000 },
+        "bab4SupportingFactors": { "type": "string", "maxLength": 4000 },
+        "bab4ObstaclesSolutions": { "type": "string", "maxLength": 4000 },
+        "bab4Recommendations": { "type": "string", "maxLength": 4000 },
+        "bab5Conclusion": { "type": "string", "maxLength": 4000 },
+        "bab5Suggestions": { "type": "string", "maxLength": 4000 },
+        "authorUid": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "title", "reportNumber", "academicYear", "status", "authorUid", "authorName", "createdAt", "updatedAt"]
+    },
+    "DigitalArchive": {
+      "title": "DigitalArchive",
+      "description": "Digital administration document repository for official school records.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Surat Izin Kegiatan",
+            "Surat Tugas",
+            "Proposal",
+            "Rencana Anggaran Biaya",
+            "Daftar Hadir",
+            "Surat Pemberitahuan Orang Tua",
+            "Laporan Kegiatan",
+            "Dokumentasi"
+          ]
+        },
+        "title": { "type": "string", "maxLength": 200 },
+        "documentNumber": { "type": "string", "maxLength": 100 },
+        "documentDate": { "type": "string", "maxLength": 40 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "fileUrl": { "type": "string", "maxLength": 2000 },
+        "storagePath": { "type": "string", "maxLength": 500 },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "fileType": { "type": "string", "maxLength": 100 },
+        "fileSize": { "type": "number" },
+        "uploadedByUid": { "type": "string", "maxLength": 128 },
+        "uploadedByName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "category", "title", "documentDate", "fileUrl", "uploadedByUid", "uploadedByName", "createdAt", "updatedAt"]
+    },
+    "Approval": {
+      "title": "Approval",
+      "description": "Principal approval records for submitted accountability reports.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reportId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reportTitle": { "type": "string", "maxLength": 250 },
+        "status": { "type": "string", "enum": ["Menunggu", "Disetujui", "Ditolak", "Revisi"] },
+        "decisionNotes": { "type": "string", "maxLength": 2000 },
+        "approverUid": { "type": "string", "maxLength": 128 },
+        "approverName": { "type": "string", "maxLength": 120 },
+        "approverNip": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "reportId", "reportTitle", "status", "approverUid", "approverName", "createdAt", "updatedAt"]
+    },
+    "LkpdSubmission": {
+      "title": "LkpdSubmission",
+      "description": "Student LKPD (Lembar Kerja Peserta Didik) answers across 6 subjects (Sejarah, PKn, Bahasa Indonesia, Ekonomi, PAI, Geografi) and teacher grading.",
+      "type": "object",
+      "properties": {
+        "activityId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "className": { "type": "string", "maxLength": 40 },
+        "groupName": { "type": "string", "maxLength": 120 },
+        "members": { "type": "string", "maxLength": 500 },
+        "sejarah1": { "type": "string", "maxLength": 3000 },
+        "sejarah2": { "type": "string", "maxLength": 2500 },
+        "pkn1": { "type": "string", "maxLength": 2500 },
+        "pkn2": { "type": "string", "maxLength": 2500 },
+        "bahasa1": { "type": "string", "maxLength": 2500 },
+        "bahasa2": { "type": "string", "maxLength": 3000 },
+        "ekonomi1": { "type": "string", "maxLength": 3000 },
+        "ekonomi2": { "type": "string", "maxLength": 2500 },
+        "pai1": { "type": "string", "maxLength": 2500 },
+        "pai2": { "type": "string", "maxLength": 2500 },
+        "geografi1": { "type": "string", "maxLength": 2500 },
+        "geografi2": { "type": "string", "maxLength": 2500 },
+        "teacherScore": { "type": "number" },
+        "teacherFeedback": { "type": "string", "maxLength": 1000 },
+        "reviewStatus": { "type": "string", "enum": ["Menunggu Penilaian", "Dinilai"] },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "reviewedByName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["activityId", "studentUid", "studentName", "className", "groupName", "members", "reviewStatus", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable change-history log for data modifications and backups.",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["CREATE", "UPDATE", "DELETE", "APPROVE", "BACKUP"] },
+        "module": { "type": "string", "maxLength": 80 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "summary": { "type": "string", "maxLength": 500 },
+        "actorUid": { "type": "string", "maxLength": 128 },
+        "actorName": { "type": "string", "maxLength": 120 },
+        "actorRole": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["action", "module", "targetId", "summary", "actorUid", "actorName", "actorRole", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "User profiles and RBAC role assignments keyed by Firebase Auth UID."
+    },
+    "/user_invites/{inviteId}": {
+      "schema": { "$ref": "#/entities/UserInvite" },
+      "description": "Pre-assigned role invitations by email created by Super Admin."
+    },
+    "/school_profile/{profileId}": {
+      "schema": { "$ref": "#/entities/SchoolProfile" },
+      "description": "Official school identity and principal metadata."
+    },
+    "/activities/{activityId}": {
+      "schema": { "$ref": "#/entities/Activity" },
+      "description": "Co-curricular activity master documents."
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Student roster including parent contact PII restricted to staff."
+    },
+    "/teachers/{teacherId}": {
+      "schema": { "$ref": "#/entities/Teacher" },
+      "description": "Accompanying teachers and mentoring tasks."
+    },
+    "/activity_participants/{participantId}": {
+      "schema": { "$ref": "#/entities/ActivityParticipant" },
+      "description": "Participant attendance and bus group assignments."
+    },
+    "/activity_schedules/{scheduleId}": {
+      "schema": { "$ref": "#/entities/ActivitySchedule" },
+      "description": "Event agenda and chronological rundown."
+    },
+    "/activity_journals/{journalId}": {
+      "schema": { "$ref": "#/entities/ActivityJournal" },
+      "description": "Daily execution journals submitted by companion teachers."
+    },
+    "/activity_documentation/{docId}": {
+      "schema": { "$ref": "#/entities/ActivityDocumentation" },
+      "description": "Categorized photo and video documentation gallery."
+    },
+    "/student_reflections/{reflectionId}": {
+      "schema": { "$ref": "#/entities/StudentReflection" },
+      "description": "Student historical observation reflections and teacher grading."
+    },
+    "/lkpd_submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/LkpdSubmission" },
+      "description": "Student LKPD (Lembar Kerja Peserta Didik) worksheet submissions and grading."
+    },
+    "/activity_evaluations/{evaluationId}": {
+      "schema": { "$ref": "#/entities/ActivityEvaluation" },
+      "description": "Post-activity evaluations and recommendations."
+    },
+    "/activity_reports/{reportId}": {
+      "schema": { "$ref": "#/entities/ActivityReport" },
+      "description": "Generated and editable accountability reports."
+    },
+    "/digital_archives/{archiveId}": {
+      "schema": { "$ref": "#/entities/DigitalArchive" },
+      "description": "Official digital administration archives."
+    },
+    "/approvals/{approvalId}": {
+      "schema": { "$ref": "#/entities/Approval" },
+      "description": "Principal approval records for accountability reports."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Audit trail of data changes and backups."
+    }
+  }
+}

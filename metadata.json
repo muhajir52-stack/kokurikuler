@@ -1,0 +1,6 @@
+{
+  "name": "SIPK SMA Darul Ulum 2026",
+  "description": "Sistem Informasi Pelaporan Kegiatan Kokurikuler SMA Darul Ulum Kepohbaru – Bojonegoro Tahun 2026: Kunjungan Edukatif ke Makam dan Museum Ir. Soekarno.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

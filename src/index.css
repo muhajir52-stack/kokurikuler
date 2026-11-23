@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-navy-950: #081429;
+  --color-navy-900: #0F2547;
+  --color-navy-800: #173463;
+  --color-navy-700: #1E4480;
+  --color-gold-600: #A37B14;
+  --color-gold-500: #C9A227;
+  --color-gold-400: #E0BD4F;
+  --color-gold-100: #FBF4DB;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+  }
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 18mm 18mm 20mm 18mm;
+  }
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only-container {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .page-break-before {
+    page-break-before: always;
+  }
+  .page-break-inside-avoid {
+    page-break-inside: avoid;
+  }
+}
