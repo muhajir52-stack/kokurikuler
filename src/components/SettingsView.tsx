@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   Database,
+  Download,
+  FileCode2,
   History,
   KeyRound,
   Plus,
@@ -627,6 +629,39 @@ export const SettingsView: React.FC = () => {
               <Database className="w-4 h-4 text-[#E0BD4F]" />
               <span>Unduh Backup JSON</span>
             </button>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <FileCode2 className="w-4 h-4 text-[#C9A227]" />
+                <h2 className="text-base font-semibold text-[#0F2547]">
+                  Konversi Web Google Apps Script (Code.gs & Index.html)
+                </h2>
+              </div>
+              <p className="text-sm text-slate-600 mt-1">
+                Unduh file <span className="font-mono text-xs font-semibold">Code.gs</span> (backend Google Sheets & Google Drive) dan{' '}
+                <span className="font-mono text-xs font-semibold">Index.html</span> untuk di-deploy sebagai Web App di Google Apps Script (login default: <span className="font-mono font-semibold">Admin / Admin</span>).
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <a
+                href="/apps-script/Code.gs"
+                download="Code.gs"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#0F2547] hover:bg-[#173463] text-white text-xs font-semibold rounded-lg whitespace-nowrap"
+              >
+                <Download className="w-4 h-4 text-[#E0BD4F]" />
+                <span>Unduh Code.gs</span>
+              </a>
+              <a
+                href="/apps-script/Index.html"
+                download="Index.html"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-[#0F2547] border border-slate-300 text-xs font-semibold rounded-lg whitespace-nowrap"
+              >
+                <Download className="w-4 h-4 text-[#C9A227]" />
+                <span>Unduh Index.html</span>
+              </a>
+            </div>
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">

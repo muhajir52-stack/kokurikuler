@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistem Informasi Pelaporan Kokurikuler - SMA Darul Ulum Kepohbaru</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff !important; }
+      main { padding: 0 !important; margin: 0 !important; }
+    }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div id="toast-root" class="no-print fixed bottom-5 right-5 z-50 space-y-2 max-w-sm"></div>
+  <div id="modal-root" class="no-print"></div>
+  <div id="app-root"></div>
+
+  <script>
+    const TOKEN_KEY = 'sipk_gas_token_2026';
+
+    const ROLE_LABELS = {
+      SUPER_ADMIN: 'Super Admin',
+      KEPALA_SEKOLAH: 'Kepala Sekolah',
+      KETUA_PELAKSANA: 'Ketua Pelaksana',
+      GURU_PENDAMPING: 'Guru Pendamping',
+      SISWA: 'Siswa'
+    };
+
+    const DOC_CATEGORIES = [
+      'Persiapan keberangkatan',
+      'Perjalanan',
+      'Kunjungan Makam Bung Karno',
+      'Kunjungan Museum Bung Karno',
+      'Kegiatan edukasi',
+      'Diskusi dan refleksi',
+      'Foto bersama',
+      'Penutupan kegiatan'
+    ];
+
+    const ARCHIVE_CATEGORIES = [
+      'Surat Izin Kegiatan',
+      'Surat Tugas',
+      'Proposal',
+      'Rencana Anggaran Biaya',
+      'Daftar Hadir',
+      'Surat Pemberitahuan Orang Tua',
+      'Laporan Kegiatan',
+      'Dokumentasi'
+    ];
+
+    const LKPD_SUBJECTS = [
+      {
+        id: 'sejarah', title: 'Sejarah',
+        q1Key: 'sejarah1', q1Label: 'Tuliskan lima peristiwa penting dalam kehidupan Ir. Soekarno yang kamu temukan di museum beserta tahunnya.',
+        q2Key: 'sejarah2', q2Label: 'Pilih satu koleksi yang paling menarik dan jelaskan maknanya bagi perjuangan bangsa.'
+      },
+      {
+        id: 'pkn', title: 'PKn',
+        q1Key: 'pkn1', q1Label: 'Pilih satu sila Pancasila dan jelaskan keterkaitannya dengan gagasan Ir. Soekarno.',
+        q2Key: 'pkn2', q2Label: 'Sebutkan dua contoh penerapan nilai tersebut dalam kehidupan remaja masa kini.'
+      },
+      {
+        id: 'bahasa', title: 'Bahasa Indonesia',
+        q1Key: 'bahasa1', q1Label: 'Catat satu kutipan atau pesan Ir. Soekarno yang paling berkesan, lalu jelaskan dengan kata-katamu sendiri.',
+        q2Key: 'bahasa2', q2Label: 'Tulis kerangka teks eksposisi tentang Pentingnya Meneladani Pahlawan Bangsa (tesis, argumen, penegasan ulang).'
+      },
+      {
+        id: 'ekonomi', title: 'Ekonomi',
+        q1Key: 'ekonomi1', q1Label: 'Wawancarai minimal dua pedagang: jenis dagangan, asal barang, omzet kasar per hari, dan dampak kunjungan wisatawan.',
+        q2Key: 'ekonomi2', q2Label: 'Identifikasi satu peluang usaha baru di kawasan tersebut dan alasannya.'
+      },
+      {
+        id: 'pai', title: 'PAI',
+        q1Key: 'pai1', q1Label: 'Tuliskan adab ziarah kubur yang kamu praktikkan dan doa yang dipanjatkan.',
+        q2Key: 'pai2', q2Label: 'Nilai akhlak apa yang kamu pelajari dari perjuangan Ir. Soekarno dan para pahlawan?'
+      },
+      {
+        id: 'geografi', title: 'Geografi',
+        q1Key: 'geografi1', q1Label: 'Catat tiga jenis bentang alam atau tata guna lahan yang kamu amati di sepanjang perjalanan.',
+        q2Key: 'geografi2', q2Label: 'Jelaskan bagaimana kondisi geografis kawasan Blitar mendukung atau memengaruhi aktivitas wisata.'
+      }
+    ];
+
+    const state = {
+      token: localStorage.getItem(TOKEN_KEY) || '',
+      user: null,
+      previewRole: null,
+      data: null,
+      activeMenu: 'dashboard',
+      subTab: '',
+      viewportMode: 'desktop',
+      mobileDrawer: false,
+      loading: true,
+      authError: '',
+      studentSearch: '',
+      studentClassFilter: 'ALL',
+      docCategoryFilter: 'ALL',
+      selectedReportId: '',
+      reportEditMode: false,
+      chartInstance: null
+    };
+
+    function gasCall(fnName, ...args) {
+      return new Promise((resolve, reject) => {
+        if (typeof google === 'undefined' || !google.script || !google.script.run) {
+          reject(new Error('Lingkungan Google Apps Script tidak terdeteksi. Jalankan melalui URL deployment Web App Apps Script.'));
+          return;
+        }
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler((err) => reject(new Error(err && err.message ? err.message : String(err))))
+          [fnName](...args);
+      });
+    }
+
+    function esc(str) {
+      return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function showToast(msg, type = 'info') {
+      const root = document.getElementById('toast-root');
+      const el = document.createElement('div');
+      const cls =
+        type === 'error' ? 'bg-red-700 text-white' :
+        type === 'success' ? 'bg-emerald-700 text-white' :
+        'bg-[#0F2547] text-white border border-[#C9A227]/40';
+      el.className = `px-4 py-3 rounded-xl shadow-lg text-xs font-medium flex items-center gap-2 ${cls}`;
+      el.innerHTML = `<span>${esc(msg)}</span>`;
+      root.appendChild(el);
+      setTimeout(() => { el.remove(); }, 3500);
+    }
+
+    function effectiveRole() {
+      if (!state.user) return 'SISWA';
+      if (state.user.role === 'SUPER_ADMIN' && state.previewRole) return state.previewRole;
+      return state.user.role;
+    }
+
+    function isStaff() {
+      return effectiveRole() !== 'SISWA';
+    }
+
+    function getNavMenus() {
+      const role = effectiveRole();
+      if (role === 'SISWA') {
+        return [
+          { id: 'dashboard', label: 'Beranda', icon: 'home', tabs: [] },
+          { id: 'identitas', label: 'Rundown Kegiatan', icon: 'calendar-clock', tabs: [] },
+          { id: 'dokumentasi', label: 'Dokumentasi', icon: 'images', tabs: [] },
+          { id: 'lkpd', label: 'LKPD & Refleksi', icon: 'book-open-check', tabs: ['Instrumen LKPD', 'Refleksi Siswa'] }
+        ];
+      }
+      const menus = [
+        { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard', tabs: [] },
+        { id: 'identitas', label: 'Identitas & Agenda', icon: 'clipboard-list', tabs: ['Identitas Kegiatan', 'Agenda & Rundown'] },
+        { id: 'peserta', label: 'Peserta & Guru', icon: 'users', tabs: ['Data Peserta', 'Guru Pendamping'] },
+        { id: 'jurnal', label: 'Jurnal & Evaluasi', icon: 'notebook-pen', tabs: ['Jurnal Pelaksanaan', 'Evaluasi Kegiatan'] },
+        { id: 'dokumentasi', label: 'Dokumentasi', icon: 'images', tabs: [] },
+        { id: 'lkpd', label: 'LKPD & Refleksi', icon: 'book-open-check', tabs: ['Instrumen LKPD', 'Refleksi Siswa'] },
+        { id: 'laporan', label: 'Laporan & Arsip', icon: 'file-text', tabs: ['Laporan Otomatis', 'Arsip Digital'] }
+      ];
+      if (role === 'SUPER_ADMIN') {
+        menus.push({ id: 'pengaturan', label: 'Pengaturan', icon: 'settings', tabs: ['Akun & Hak Akses', 'Identitas Sekolah', 'Backup & Audit'] });
+      }
+      return menus;
+    }
+
+    function selectMenu(id, tabName = '') {
+      state.activeMenu = id;
+      const menu = getNavMenus().find(m => m.id === id);
+      state.subTab = tabName || (menu && menu.tabs.length ? menu.tabs[0] : '');
+      state.mobileDrawer = false;
+      render();
+    }
+
+    async function initApp() {
+      if (state.token) {
+        try {
+          const res = await gasCall('verifySession', state.token);
+          if (res && res.ok) {
+            state.user = res.user;
+            const boot = await gasCall('getBootstrapData', state.token);
+            state.data = boot;
+          } else {
+            localStorage.removeItem(TOKEN_KEY);
+            state.token = '';
+          }
+        } catch (err) {
+          localStorage.removeItem(TOKEN_KEY);
+          state.token = '';
+        }
+      }
+      state.loading = false;
+      render();
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const identifier = document.getElementById('login-id').value.trim();
+      const password = document.getElementById('login-pass').value;
+      if (!identifier || !password) return;
+      state.authError = '';
+      const btn = document.getElementById('login-btn');
+      btn.disabled = true;
+      btn.textContent = 'Memverifikasi...';
+      try {
+        const res = await gasCall('loginUser', identifier, password);
+        if (!res.ok) {
+          state.authError = res.error || 'Username atau kata sandi salah.';
+          render();
+          return;
+        }
+        state.token = res.token;
+        state.user = res.user;
+        localStorage.setItem(TOKEN_KEY, res.token);
+        state.loading = true;
+        render();
+        state.data = await gasCall('getBootstrapData', state.token);
+        state.activeMenu = 'dashboard';
+        state.subTab = '';
+      } catch (err) {
+        state.authError = err.message;
+      } finally {
+        state.loading = false;
+        render();
+      }
+    }
+
+    function handleLogout() {
+      localStorage.removeItem(TOKEN_KEY);
+      state.token = '';
+      state.user = null;
+      state.data = null;
+      state.previewRole = null;
+      state.authError = '';
+      render();
+    }
+
+    function closeModal() {
+      document.getElementById('modal-root').innerHTML = '';
+    }
+
+    function openModal(title, bodyHtml, maxWidth = 'max-w-xl') {
+      const root = document.getElementById('modal-root');
+      root.innerHTML = `
+        <div class="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto">
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full ${maxWidth} overflow-hidden my-auto">
+            <div class="px-5 py-4 bg-[#0F2547] text-white flex items-center justify-between">
+              <h3 class="text-sm font-semibold">${esc(title)}</h3>
+              <button type="button" onclick="closeModal()" class="text-slate-300 hover:text-white p-1">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <div class="p-5 max-h-[82vh] overflow-y-auto">${bodyHtml}</div>
+          </div>
+        </div>
+      `;
+      lucide.createIcons();
+    }
+
+    function confirmAction(title, message, onConfirm) {
+      openModal(title, `
+        <p class="text-sm text-slate-600 mb-5">${esc(message)}</p>
+        <div class="flex justify-end gap-2">
+          <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50">Batal</button>
+          <button type="button" id="confirm-yes-btn" class="px-4 py-2 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg">Ya, Lanjutkan</button>
+        </div>
+      `, 'max-w-md');
+      document.getElementById('confirm-yes-btn').onclick = async () => {
+        closeModal();
+        await onConfirm();
+      };
+    }
+
+    async function runMutation(fnCall, successMsg) {
+      try {
+        const res = await fnCall();
+        if (res && res.ok) state.data = res;
+        if (successMsg) showToast(successMsg, 'success');
+        render();
+      } catch (err) {
+        showToast(err.message || 'Terjadi kesalahan saat menyimpan data.', 'error');
+      }
+    }
+
+    /* =====================================================================
+     * RENDER LOGIN
+     * ===================================================================== */
+    function renderLogin() {
+      return `
+        <div class="min-h-screen bg-slate-50 flex flex-col lg:flex-row">
+          <div class="lg:w-7/12 relative bg-[#081429] text-white flex flex-col justify-between p-8 lg:p-12 overflow-hidden">
+            <div class="absolute inset-0 bg-gradient-to-br from-[#081429] via-[#0F2547] to-[#173463]"></div>
+            <div class="relative z-10 flex items-center gap-3.5">
+              <div class="w-11 h-11 rounded-xl bg-[#C9A227]/20 border border-[#E0BD4F]/40 flex items-center justify-center">
+                <i data-lucide="graduation-cap" class="w-6 h-6 text-[#E0BD4F]"></i>
+              </div>
+              <div>
+                <p class="text-xs font-medium tracking-wide text-[#E0BD4F]">SMA DARUL ULUM KEPOHBARU · BOJONEGORO</p>
+                <h1 class="text-lg font-semibold text-white">Sistem Informasi Pelaporan Kegiatan Kokurikuler</h1>
+              </div>
+            </div>
+            <div class="relative z-10 max-w-2xl my-12">
+              <p class="text-xs font-medium text-[#E0BD4F] mb-3">Tahun Pelaksanaan 2026 · Google Apps Script Web App</p>
+              <h2 class="text-2xl lg:text-4xl font-semibold text-white leading-tight mb-4">
+                Kunjungan Edukatif ke Makam dan Museum Ir. Soekarno, Presiden Pertama Republik Indonesia
+              </h2>
+              <p class="text-sm text-slate-200 leading-relaxed mb-8">
+                Platform terpadu administrasi peserta, jurnal pendampingan, dokumentasi Google Drive, instrumen LKPD siswa, serta penyusunan laporan otomatis berbasis Google Sheets.
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-white/15 pt-6 text-xs">
+                <div><p class="font-semibold text-white">Database Google Sheets</p><p class="text-slate-300 mt-0.5">Tersinkronisasi otomatis</p></div>
+                <div><p class="font-semibold text-white">LKPD & Refleksi</p><p class="text-slate-300 mt-0.5">6 mapel & penilaian guru</p></div>
+                <div><p class="font-semibold text-white">Laporan Otomatis</p><p class="text-slate-300 mt-0.5">Ekspor PDF & Word</p></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="lg:w-5/12 flex items-center justify-center p-6 sm:p-10 bg-white">
+            <div class="w-full max-w-md">
+              <div class="inline-flex items-center gap-2 text-xs font-semibold text-[#0F2547] mb-2">
+                <i data-lucide="shield-check" class="w-4 h-4 text-[#C9A227]"></i>
+                <span>Portal Masuk Pengguna</span>
+              </div>
+              <h2 class="text-2xl font-semibold text-slate-900 mb-1.5">Masuk ke Dasbor</h2>
+              <p class="text-sm text-slate-600 mb-6">Masukkan username / email dan kata sandi akun Anda.</p>
+
+              ${state.authError ? `<div class="mb-5 p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">${esc(state.authError)}</div>` : ''}
+
+              <form onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Username atau Email</label>
+                  <input id="login-id" type="text" required placeholder="Admin" class="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:outline-none focus:border-[#0F2547]" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Kata Sandi</label>
+                  <input id="login-pass" type="password" required placeholder="Masukkan kata sandi" class="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:outline-none focus:border-[#0F2547]" />
+                </div>
+                <button id="login-btn" type="submit" class="w-full py-3 bg-[#0F2547] hover:bg-[#173463] text-white text-sm font-semibold rounded-xl transition-colors cursor-pointer">
+                  Masuk ke Dasbor
+                </button>
+              </form>
+              <p class="mt-6 text-xs text-slate-500 text-center">Hak akses disesuaikan untuk Super Admin, Kepala Sekolah, Ketua Pelaksana, Guru Pendamping, dan Siswa.</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    /* =====================================================================
+     * RENDER DASHBOARD & BERANDA
+     * ===================================================================== */
+    function renderDashboard() {
+      const d = state.data;
+      const act = d.activity || {};
+      const checks = [
+        { label: 'Identitas Kegiatan', done: !!act.name, menu: 'identitas', tab: 'Identitas Kegiatan' },
+        { label: 'Data Peserta Didik', done: d.students.length > 0, menu: 'peserta', tab: 'Data Peserta' },
+        { label: 'Guru Pendamping', done: d.teachers.length > 0, menu: 'peserta', tab: 'Guru Pendamping' },
+        { label: 'Rundown Kegiatan', done: d.schedules.length > 0, menu: 'identitas', tab: 'Agenda & Rundown' },
+        { label: 'Jurnal Pelaksanaan', done: d.journals.length > 0, menu: 'jurnal', tab: 'Jurnal Pelaksanaan' },
+        { label: 'Dokumentasi Foto/Video', done: d.documentation.length > 0, menu: 'dokumentasi', tab: '' },
+        { label: 'Evaluasi & Laporan', done: d.evaluations.length > 0 && d.reports.length > 0, menu: 'laporan', tab: 'Laporan Otomatis' }
+      ];
+      const pct = Math.round((checks.filter(c => c.done).length / checks.length) * 100);
+
+      if (!isStaff()) {
+        return `
+          <div class="space-y-6">
+            <div class="bg-[#0F2547] text-white rounded-2xl p-6 lg:p-8 border border-[#1E4480]">
+              <p class="text-xs font-semibold text-[#E0BD4F] uppercase tracking-wider">Portal Siswa · Tahun 2026</p>
+              <h1 class="text-2xl font-semibold mt-1">${esc(act.name || 'Kegiatan Kokurikuler SMA Darul Ulum')}</h1>
+              <p class="text-sm text-slate-200 mt-2">${esc(act.theme || '')}</p>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-5 border-t border-white/15 text-xs">
+                <div><span class="text-slate-300">Jadwal:</span> <strong class="block text-white mt-0.5">${esc(act.dayDate)}</strong></div>
+                <div><span class="text-slate-300">Keberangkatan:</span> <strong class="block text-white mt-0.5">${esc(act.departureTime)}</strong></div>
+                <div><span class="text-slate-300">Lokasi Tujuan:</span> <strong class="block text-white mt-0.5">${esc(act.destination)}</strong></div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div class="bg-white border border-slate-200 rounded-xl p-5">
+                <p class="text-xs text-slate-500 font-medium">LKPD Terkirim</p>
+                <p class="text-2xl font-bold text-[#0F2547] mt-1">${d.lkpdSubmissions.length}</p>
+                <button onclick="selectMenu('lkpd', 'Instrumen LKPD')" class="mt-3 text-xs font-semibold text-[#0F2547] hover:underline">Buka Instrumen LKPD →</button>
+              </div>
+              <div class="bg-white border border-slate-200 rounded-xl p-5">
+                <p class="text-xs text-slate-500 font-medium">Refleksi Belajar</p>
+                <p class="text-2xl font-bold text-[#0F2547] mt-1">${d.reflections.length}</p>
+                <button onclick="selectMenu('lkpd', 'Refleksi Siswa')" class="mt-3 text-xs font-semibold text-[#0F2547] hover:underline">Isi Refleksi →</button>
+              </div>
+              <div class="bg-white border border-slate-200 rounded-xl p-5">
+                <p class="text-xs text-slate-500 font-medium">Agenda Rundown</p>
+                <p class="text-2xl font-bold text-[#0F2547] mt-1">${d.schedules.length} Sesi</p>
+                <button onclick="selectMenu('identitas')" class="mt-3 text-xs font-semibold text-[#0F2547] hover:underline">Lihat Jadwal →</button>
+              </div>
+              <div class="bg-white border border-slate-200 rounded-xl p-5">
+                <p class="text-xs text-slate-500 font-medium">Galeri Dokumentasi</p>
+                <p class="text-2xl font-bold text-[#0F2547] mt-1">${d.documentation.length} Media</p>
+                <button onclick="selectMenu('dokumentasi')" class="mt-3 text-xs font-semibold text-[#0F2547] hover:underline">Lihat Galeri →</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="space-y-6">
+          <div class="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <div class="inline-flex items-center gap-2 text-xs font-semibold text-[#0F2547] bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md mb-2">
+                <span>Tahun Pelaksanaan ${esc(act.year || 2026)}</span>
+                <span>·</span>
+                <span>Status: ${esc(act.status || 'Berjalan')}</span>
+              </div>
+              <h1 class="text-xl font-bold text-[#0F2547]">${esc(act.name)}</h1>
+              <p class="text-sm text-slate-600 mt-1">${esc(act.theme)}</p>
+              <p class="text-xs text-slate-500 mt-2">Lokasi: ${esc(act.destination)} · ${esc(act.dayDate)}</p>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 min-w-[220px]">
+              <div class="flex justify-between text-xs font-semibold text-slate-700 mb-1.5">
+                <span>Kelengkapan Laporan</span>
+                <span class="text-[#0F2547]">${pct}%</span>
+              </div>
+              <div class="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                <div class="h-full bg-[#C9A227] rounded-full" style="width:${pct}%"></div>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-2">${checks.filter(c=>c.done).length} dari ${checks.length} pilar data terpenuhi</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-white border border-slate-200 rounded-xl p-5">
+              <p class="text-xs font-medium text-slate-500">Peserta Didik</p>
+              <p class="text-2xl font-bold text-[#0F2547] mt-1">${d.students.length}</p>
+              <p class="text-xs text-slate-500 mt-1">Hadir: ${d.students.filter(s=>s.participationStatus==='Hadir').length} siswa</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-5">
+              <p class="text-xs font-medium text-slate-500">Guru Pendamping</p>
+              <p class="text-2xl font-bold text-[#0F2547] mt-1">${d.teachers.length}</p>
+              <p class="text-xs text-slate-500 mt-1">Penanggung jawab lapangan</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-5">
+              <p class="text-xs font-medium text-slate-500">Dokumentasi & LKPD</p>
+              <p class="text-2xl font-bold text-[#0F2547] mt-1">${d.documentation.length} / ${d.lkpdSubmissions.length}</p>
+              <p class="text-xs text-slate-500 mt-1">Media galeri & lembar LKPD</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-5">
+              <p class="text-xs font-medium text-slate-500">Laporan Disusun</p>
+              <p class="text-2xl font-bold text-[#0F2547] mt-1">${d.reports.length}</p>
+              <p class="text-xs text-slate-500 mt-1">Disetujui: ${d.reports.filter(r=>r.status==='Disetujui').length} dokumen</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+              <h2 class="text-sm font-semibold text-[#0F2547] mb-3">Partisipasi Refleksi & LKPD per Kelas (Student Engagement)</h2>
+              <div class="h-64"><canvas id="engagement-chart"></canvas></div>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5">
+              <h2 class="text-sm font-semibold text-[#0F2547]">Status Kelengkapan Data</h2>
+              ${checks.map(c => `
+                <button onclick="selectMenu('${c.menu}', '${c.tab}')" class="w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs ${c.done ? 'bg-emerald-50/60 border-emerald-200 text-emerald-900' : 'bg-slate-50 border-slate-200 text-slate-700'} hover:border-[#0F2547] text-left">
+                  <span class="font-medium">${esc(c.label)}</span>
+                  <span class="font-semibold">${c.done ? 'Lengkap' : 'Lengkapi →'}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-white border border-slate-200 rounded-xl p-5">
+              <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-[#0F2547]">Timeline Rundown Kegiatan</h2>
+                <button onclick="selectMenu('identitas', 'Agenda & Rundown')" class="text-xs font-semibold text-[#0F2547] hover:underline">Lihat Semua</button>
+              </div>
+              <div class="space-y-3">
+                ${d.schedules.slice(0, 5).map(sc => `
+                  <div class="flex gap-3 text-xs border-l-2 border-[#C9A227] pl-3 py-0.5">
+                    <span class="font-mono font-semibold text-[#0F2547] whitespace-nowrap">${esc(sc.timeRange)}</span>
+                    <div>
+                      <p class="font-semibold text-slate-800">${esc(sc.activityTitle)}</p>
+                      <p class="text-slate-500">${esc(sc.location)}</p>
+                    </div>
+                  </div>
+                `).join('') || '<p class="text-xs text-slate-400">Belum ada jadwal tercatat.</p>'}
+              </div>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-5">
+              <h2 class="text-sm font-semibold text-[#0F2547] mb-3">Aktivitas Terbaru</h2>
+              <div class="space-y-2.5">
+                ${d.auditLogs.slice(0, 6).map(a => `
+                  <div class="text-xs flex items-start justify-between gap-2 pb-2 border-b border-slate-100 last:border-0">
+                    <div>
+                      <span class="font-semibold text-[#0F2547]">[${esc(a.action)}]</span>
+                      <span class="text-slate-700">${esc(a.summary)}</span>
+                      <p class="text-[11px] text-slate-400">${esc(a.actorName)}</p>
+                    </div>
+                  </div>
+                `).join('') || '<p class="text-xs text-slate-400">Belum ada aktivitas.</p>'}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function initChartIfPresent() {
+      const canvas = document.getElementById('engagement-chart');
+      if (!canvas || !state.data) return;
+      if (state.chartInstance) {
+        state.chartInstance.destroy();
+        state.chartInstance = null;
+      }
+      const counts = {};
+      (state.data.students || []).forEach(s => { const k = s.className || 'Lainnya'; counts[k] = counts[k] || { peserta: 0, kiriman: 0 }; counts[k].peserta++; });
+      (state.data.reflections || []).forEach(r => { const k = r.className || 'Lainnya'; counts[k] = counts[k] || { peserta: 0, kiriman: 0 }; counts[k].kiriman++; });
+      (state.data.lkpdSubmissions || []).forEach(l => { const k = l.className || 'Lainnya'; counts[k] = counts[k] || { peserta: 0, kiriman: 0 }; counts[k].kiriman++; });
+      const labels = Object.keys(counts);
+      state.chartInstance = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: labels.length ? labels : ['Belum ada kelas'],
+          datasets: [
+            { label: 'Peserta Terdaftar', data: labels.map(k => counts[k].peserta), backgroundColor: '#0F2547', borderRadius: 6 },
+            { label: 'LKPD & Refleksi Terkirim', data: labels.map(k => counts[k].kiriman), backgroundColor: '#C9A227', borderRadius: 6 }
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+    }
+
+    /* =====================================================================
+     * IDENTITAS & AGENDA RUNDOWN
+     * ===================================================================== */
+    function renderIdentitasModule() {
+      if (!isStaff() || state.subTab === 'Agenda & Rundown') {
+        const schedules = state.data.schedules || [];
+        const canEdit = ['SUPER_ADMIN', 'KETUA_PELAKSANA'].includes(effectiveRole());
+        return `
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 class="text-xl font-bold text-[#0F2547]">Agenda dan Rundown Kegiatan</h1>
+                <p class="text-sm text-slate-600">Susunan acara kunjungan edukatif ke Makam dan Museum Ir. Soekarno Blitar.</p>
+              </div>
+              <div class="no-print flex gap-2">
+                <button onclick="window.print()" class="px-3.5 py-2 text-xs font-semibold border border-slate-300 bg-white rounded-lg hover:bg-slate-50">Cetak Rundown</button>
+                ${canEdit ? `<button onclick="openScheduleForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg hover:bg-[#173463]">+ Tambah Agenda</button>` : ''}
+              </div>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
+                      <th class="py-3 px-4 w-12">No</th>
+                      <th class="py-3 px-4">Waktu</th>
+                      <th class="py-3 px-4">Kegiatan</th>
+                      <th class="py-3 px-4">Lokasi</th>
+                      <th class="py-3 px-4">Penanggung Jawab</th>
+                      ${canEdit ? '<th class="no-print py-3 px-4 text-right">Aksi</th>' : ''}
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${schedules.map(sc => `
+                      <tr>
+                        <td class="py-3 px-4 font-semibold text-[#0F2547]">${esc(sc.orderNo)}</td>
+                        <td class="py-3 px-4 font-mono text-xs whitespace-nowrap">${esc(sc.timeRange)}</td>
+                        <td class="py-3 px-4"><p class="font-medium text-slate-900">${esc(sc.activityTitle)}</p><p class="text-xs text-slate-500">${esc(sc.notes)}</p></td>
+                        <td class="py-3 px-4 text-xs text-slate-600">${esc(sc.location)}</td>
+                        <td class="py-3 px-4 text-xs text-slate-700">${esc(sc.personInCharge)}</td>
+                        ${canEdit ? `
+                          <td class="no-print py-3 px-4 text-right whitespace-nowrap">
+                            <button onclick="openScheduleForm('${esc(sc.id)}')" class="text-xs font-semibold text-[#0F2547] mr-2 hover:underline">Edit</button>
+                            <button onclick="deleteItem('Schedules', '${esc(sc.id)}', '${esc(sc.activityTitle)}')" class="text-xs font-semibold text-red-600 hover:underline">Hapus</button>
+                          </td>` : ''}
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const act = state.data.activity || {};
+      const canSave = ['SUPER_ADMIN', 'KETUA_PELAKSANA'].includes(effectiveRole());
+      return `
+        <form onsubmit="submitActivityForm(event)" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <h1 class="text-xl font-bold text-[#0F2547]">Identitas Kegiatan Kokurikuler</h1>
+              <p class="text-xs text-slate-500 mt-0.5">Data ini menjadi sumber utama penyusunan BAB I & BAB II Laporan Otomatis.</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div class="md:col-span-2"><label class="block text-xs font-semibold text-slate-700 mb-1">Nama Kegiatan *</label><input name="name" required value="${esc(act.name)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div class="md:col-span-2"><label class="block text-xs font-semibold text-slate-700 mb-1">Tema Kegiatan *</label><input name="theme" required value="${esc(act.theme)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold text-slate-700 mb-1">Hari & Tanggal</label><input name="dayDate" value="${esc(act.dayDate)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold text-slate-700 mb-1">Waktu Keberangkatan</label><input name="departureTime" value="${esc(act.departureTime)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold text-slate-700 mb-1">Lokasi Tujuan</label><input name="destination" value="${esc(act.destination)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold text-slate-700 mb-1">Alamat Lokasi</label><input name="destinationAddress" value="${esc(act.destinationAddress)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold text-slate-700 mb-1">Penanggung Jawab</label><input name="personInCharge" value="${esc(act.personInCharge)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold text-slate-700 mb-1">Ketua Pelaksana</label><input name="chiefExecutive" value="${esc(act.chiefExecutive)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold text-slate-700 mb-1">Target Peserta</label><input type="number" name="participantCountTarget" value="${esc(act.participantCountTarget || 120)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold text-slate-700 mb-1">Sumber Pembiayaan</label><input name="fundingSource" value="${esc(act.fundingSource)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div class="md:col-span-2"><label class="block text-xs font-semibold text-slate-700 mb-1">Latar Belakang</label><textarea name="background" rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(act.background)}</textarea></div>
+            <div class="md:col-span-2"><label class="block text-xs font-semibold text-slate-700 mb-1">Tujuan Kegiatan</label><textarea name="purpose" rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(act.purpose)}</textarea></div>
+            <div class="md:col-span-2"><label class="block text-xs font-semibold text-slate-700 mb-1">Dasar Pelaksanaan</label><textarea name="legalBasis" rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(act.legalBasis)}</textarea></div>
+          </div>
+          ${canSave ? `<div class="flex justify-end pt-3 border-t border-slate-100"><button type="submit" class="px-5 py-2.5 bg-[#0F2547] hover:bg-[#173463] text-white text-xs font-semibold rounded-lg">Simpan Identitas Kegiatan</button></div>` : ''}
+        </form>
+      `;
+    }
+
+    async function submitActivityForm(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const data = Object.fromEntries(fd.entries());
+      data.year = Number(state.data.activity?.year || 2026);
+      data.participantCountTarget = Number(data.participantCountTarget || 0);
+      await runMutation(() => gasCall('saveActivity', state.token, data), 'Identitas kegiatan disimpan ke Google Sheets.');
+    }
+
+    function openScheduleForm(id = '') {
+      const item = id ? state.data.schedules.find(x => x.id === id) : {};
+      openModal(id ? 'Edit Agenda Rundown' : 'Tambah Agenda Rundown', `
+        <form onsubmit="saveGenericForm(event, 'Schedules', '${esc(id)}')" class="space-y-3 text-sm">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Nomor Urut *</label><input name="orderNo" type="number" required value="${esc(item.orderNo || state.data.schedules.length + 1)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Waktu *</label><input name="timeRange" required placeholder="08.00 - 09.30 WIB" value="${esc(item.timeRange || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Nama Kegiatan *</label><input name="activityTitle" required value="${esc(item.activityTitle || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Lokasi *</label><input name="location" required value="${esc(item.location || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Penanggung Jawab *</label><input name="personInCharge" required value="${esc(item.personInCharge || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Keterangan</label><textarea name="notes" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.notes || '')}</textarea></div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Simpan</button>
+          </div>
+        </form>
+      `);
+    }
+
+    /* =====================================================================
+     * PESERTA & GURU PENDAMPING
+     * ===================================================================== */
+    function renderPesertaModule() {
+      const canManage = ['SUPER_ADMIN', 'KETUA_PELAKSANA'].includes(effectiveRole());
+      if (state.subTab === 'Guru Pendamping') {
+        const teachers = state.data.teachers || [];
+        return `
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 class="text-xl font-bold text-[#0F2547]">Data Guru Pendamping</h1>
+                <p class="text-sm text-slate-600">Daftar pendidik penanggung jawab rombongan dan bimbingan lapangan.</p>
+              </div>
+              ${canManage ? `<button onclick="openTeacherForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">+ Tambah Guru</button>` : ''}
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
+                      <th class="py-3 px-4">Nama Guru</th>
+                      <th class="py-3 px-4">NIP / NUPTK</th>
+                      <th class="py-3 px-4">Jabatan</th>
+                      <th class="py-3 px-4">Tugas Pendampingan</th>
+                      <th class="py-3 px-4">No. Telepon</th>
+                      ${canManage ? '<th class="py-3 px-4 text-right">Aksi</th>' : ''}
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${teachers.map(t => `
+                      <tr>
+                        <td class="py-3 px-4 font-medium text-slate-900">${esc(t.name)}</td>
+                        <td class="py-3 px-4 font-mono text-xs text-slate-600">${esc(t.nipNuptk || '-')}</td>
+                        <td class="py-3 px-4 text-xs">${esc(t.position)}</td>
+                        <td class="py-3 px-4 text-xs text-slate-600">${esc(t.mentoringTask)}</td>
+                        <td class="py-3 px-4 font-mono text-xs">${esc(t.phone || '-')}</td>
+                        ${canManage ? `
+                          <td class="py-3 px-4 text-right whitespace-nowrap">
+                            <button onclick="openTeacherForm('${esc(t.id)}')" class="text-xs font-semibold text-[#0F2547] mr-2 hover:underline">Edit</button>
+                            <button onclick="deleteItem('Teachers', '${esc(t.id)}', '${esc(t.name)}')" class="text-xs font-semibold text-red-600 hover:underline">Hapus</button>
+                          </td>` : ''}
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const students = state.data.students || [];
+      const classes = Array.from(new Set(students.map(s => s.className).filter(Boolean))).sort();
+      const filtered = students.filter(s => {
+        const q = state.studentSearch.toLowerCase();
+        const matchQ = !q || String(s.name).toLowerCase().includes(q) || String(s.nis).toLowerCase().includes(q);
+        const matchC = state.studentClassFilter === 'ALL' || s.className === state.studentClassFilter;
+        return matchQ && matchC;
+      });
+
+      return `
+        <div class="space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-bold text-[#0F2547]">Data Peserta Didik (${filtered.length})</h1>
+              <p class="text-sm text-slate-600">Daftar peserta kegiatan kokurikuler tahun 2026.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button onclick="exportStudentsCsv()" class="px-3.5 py-2 text-xs font-semibold border border-slate-300 bg-white rounded-lg hover:bg-slate-50">Ekspor CSV/Excel</button>
+              ${canManage ? `<button onclick="openStudentForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">+ Tambah Peserta</button>` : ''}
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap gap-3">
+            <input type="text" placeholder="Cari NIS atau nama siswa..." value="${esc(state.studentSearch)}" oninput="state.studentSearch=this.value; render();" class="flex-1 min-w-[200px] px-3 py-2 text-sm border border-slate-300 rounded-lg" />
+            <select onchange="state.studentClassFilter=this.value; render();" class="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white">
+              <option value="ALL">Semua Kelas</option>
+              ${classes.map(c => `<option value="${esc(c)}" ${state.studentClassFilter===c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
+                    <th class="py-3 px-4">NIS</th>
+                    <th class="py-3 px-4">Nama Siswa</th>
+                    <th class="py-3 px-4">Kelas</th>
+                    <th class="py-3 px-4">L/P</th>
+                    <th class="py-3 px-4">Kontak Ortu</th>
+                    <th class="py-3 px-4">Rombongan</th>
+                    <th class="py-3 px-4">Status</th>
+                    ${canManage ? '<th class="py-3 px-4 text-right">Aksi</th>' : ''}
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${filtered.map(s => `
+                    <tr>
+                      <td class="py-2.5 px-4 font-mono text-xs">${esc(s.nis)}</td>
+                      <td class="py-2.5 px-4 font-medium text-slate-900">${esc(s.name)}</td>
+                      <td class="py-2.5 px-4 text-xs">${esc(s.className)}</td>
+                      <td class="py-2.5 px-4 text-xs">${esc(s.gender)}</td>
+                      <td class="py-2.5 px-4 font-mono text-xs text-slate-600">${esc(s.parentPhone || '-')}</td>
+                      <td class="py-2.5 px-4 text-xs">${esc(s.busGroup || 'Bus 1')}</td>
+                      <td class="py-2.5 px-4 text-xs"><span class="px-2 py-0.5 rounded font-semibold ${s.participationStatus==='Hadir' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'}">${esc(s.participationStatus)}</span></td>
+                      ${canManage ? `
+                        <td class="py-2.5 px-4 text-right whitespace-nowrap">
+                          <button onclick="openStudentForm('${esc(s.id)}')" class="text-xs font-semibold text-[#0F2547] mr-2 hover:underline">Edit</button>
+                          <button onclick="deleteItem('Students', '${esc(s.id)}', '${esc(s.name)}')" class="text-xs font-semibold text-red-600 hover:underline">Hapus</button>
+                        </td>` : ''}
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function openStudentForm(id = '') {
+      const item = id ? state.data.students.find(x => x.id === id) : {};
+      openModal(id ? 'Edit Data Peserta' : 'Tambah Data Peserta', `
+        <form onsubmit="saveGenericForm(event, 'Students', '${esc(id)}')" class="space-y-3 text-sm">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">NIS *</label><input name="nis" required value="${esc(item.nis || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Kelas *</label><input name="className" required placeholder="XI IPA 1" value="${esc(item.className || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Nama Lengkap Siswa *</label><input name="name" required value="${esc(item.name || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Jenis Kelamin</label><select name="gender" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"><option value="L" ${item.gender==='L'?'selected':''}>Laki-laki</option><option value="P" ${item.gender==='P'?'selected':''}>Perempuan</option></select></div>
+            <div><label class="block text-xs font-semibold mb-1">Rombongan Bus</label><input name="busGroup" value="${esc(item.busGroup || 'Bus 1')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Status</label><select name="participationStatus" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"><option ${item.participationStatus==='Hadir'?'selected':''}>Hadir</option><option ${item.participationStatus==='Terdaftar'?'selected':''}>Terdaftar</option><option ${item.participationStatus==='Izin'?'selected':''}>Izin</option><option ${item.participationStatus==='Tidak Hadir'?'selected':''}>Tidak Hadir</option></select></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Kontak Orang Tua</label><input name="parentPhone" value="${esc(item.parentPhone || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono" /></div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Simpan</button>
+          </div>
+        </form>
+      `);
+    }
+
+    function openTeacherForm(id = '') {
+      const item = id ? state.data.teachers.find(x => x.id === id) : {};
+      openModal(id ? 'Edit Guru Pendamping' : 'Tambah Guru Pendamping', `
+        <form onsubmit="saveGenericForm(event, 'Teachers', '${esc(id)}')" class="space-y-3 text-sm">
+          <div><label class="block text-xs font-semibold mb-1">Nama Guru *</label><input name="name" required value="${esc(item.name || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">NIP / NUPTK</label><input name="nipNuptk" value="${esc(item.nipNuptk || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono" /></div>
+            <div><label class="block text-xs font-semibold mb-1">No. Telepon</label><input name="phone" value="${esc(item.phone || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Jabatan *</label><input name="position" required value="${esc(item.position || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Tugas Pendampingan *</label><textarea name="mentoringTask" required rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.mentoringTask || '')}</textarea></div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Simpan</button>
+          </div>
+        </form>
+      `);
+    }
+
+    function exportStudentsCsv() {
+      const rows = [['NIS', 'Nama Siswa', 'Kelas', 'L/P', 'Kontak Orang Tua', 'Rombongan', 'Status']];
+      (state.data.students || []).forEach(s => {
+        rows.push([s.nis, s.name, s.className, s.gender, s.parentPhone || '', s.busGroup || '', s.participationStatus]);
+      });
+      const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'Data_Peserta_Kokurikuler_2026.csv';
+      a.click();
+    }
+
+    /* =====================================================================
+     * JURNAL & EVALUASI KEGIATAN
+     * ===================================================================== */
+    function renderJurnalModule() {
+      if (state.subTab === 'Evaluasi Kegiatan') {
+        const evals = state.data.evaluations || [];
+        return `
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 class="text-xl font-bold text-[#0F2547]">Evaluasi Kegiatan Kokurikuler</h1>
+                <p class="text-sm text-slate-600">Penilaian ketercapaian tujuan, partisipasi, kendala, dan rekomendasi.</p>
+              </div>
+              <button onclick="openEvalForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">+ Tambah Evaluasi</button>
+            </div>
+            <div class="space-y-4">
+              ${evals.map(ev => `
+                <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <p class="text-xs font-semibold text-slate-500">Evaluator: ${esc(ev.evaluatorName)}</p>
+                      <p class="text-lg font-bold text-[#0F2547]">Tingkat Keberhasilan: ${esc(ev.activitySuccessRate)}%</p>
+                    </div>
+                    <div class="flex gap-2">
+                      <button onclick="openEvalForm('${esc(ev.id)}')" class="text-xs font-semibold text-[#0F2547] hover:underline">Edit</button>
+                      <button onclick="deleteItem('Evaluations', '${esc(ev.id)}', 'Evaluasi')" class="text-xs font-semibold text-red-600 hover:underline">Hapus</button>
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-700 bg-slate-50 p-3.5 rounded-lg">
+                    <div><strong>Kesesuaian Tujuan:</strong> ${esc(ev.goalAlignment)}</div>
+                    <div><strong>Partisipasi Siswa:</strong> ${esc(ev.studentParticipationLevel)}</div>
+                    <div><strong>Kedisiplinan:</strong> ${esc(ev.participantDiscipline)}</div>
+                    <div><strong>Faktor Pendukung:</strong> ${esc(ev.supportingFactors)}</div>
+                    <div><strong>Kendala & Solusi:</strong> ${esc(ev.obstacles)} / ${esc(ev.solutions)}</div>
+                    <div><strong>Rekomendasi:</strong> ${esc(ev.recommendations)}</div>
+                  </div>
+                </div>
+              `).join('') || '<div class="bg-white border border-slate-200 rounded-xl p-10 text-center text-sm text-slate-400">Belum ada catatan evaluasi kegiatan.</div>'}
+            </div>
+          </div>
+        `;
+      }
+
+      const journals = state.data.journals || [];
+      return `
+        <div class="space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-bold text-[#0F2547]">Jurnal Pelaksanaan Kegiatan</h1>
+              <p class="text-sm text-slate-600">Catatan lapangan guru pendamping selama perjalanan dan kunjungan.</p>
+            </div>
+            <button onclick="openJournalForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">+ Tulis Jurnal</button>
+          </div>
+          <div class="space-y-4">
+            ${journals.map(j => `
+              <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-2.5">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="px-2.5 py-0.5 rounded bg-[#0F2547] text-white font-semibold">${esc(j.date)} · ${esc(j.time)}</span>
+                    <span class="font-semibold text-[#0F2547]">${esc(j.location)}</span>
+                    <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold">${esc(j.condition)}</span>
+                  </div>
+                  <div class="flex gap-2">
+                    <button onclick="openJournalForm('${esc(j.id)}')" class="text-xs font-semibold text-[#0F2547] hover:underline">Edit</button>
+                    <button onclick="deleteItem('Journals', '${esc(j.id)}', '${esc(j.location)}')" class="text-xs font-semibold text-red-600 hover:underline">Hapus</button>
+                  </div>
+                </div>
+                <p class="text-sm text-slate-800">${esc(j.description)}</p>
+                <div class="text-xs text-slate-600 grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                  <div><strong>Hadir:</strong> ${esc(j.attendeesCount)} siswa</div>
+                  <div><strong>Kendala:</strong> ${esc(j.obstacles || '-')}</div>
+                  <div><strong>Solusi:</strong> ${esc(j.solutions || '-')}</div>
+                </div>
+              </div>
+            `).join('') || '<div class="bg-white border border-slate-200 rounded-xl p-10 text-center text-sm text-slate-400">Belum ada jurnal pelaksanaan.</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function openJournalForm(id = '') {
+      const item = id ? state.data.journals.find(x => x.id === id) : {};
+      openModal(id ? 'Edit Jurnal Pelaksanaan' : 'Tambah Jurnal Pelaksanaan', `
+        <form onsubmit="saveGenericForm(event, 'Journals', '${esc(id)}')" class="space-y-3 text-sm">
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Tanggal *</label><input name="date" type="date" required value="${esc(item.date || '2026-02-14')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Waktu *</label><input name="time" required placeholder="09.30 WIB" value="${esc(item.time || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Peserta Hadir *</label><input name="attendeesCount" type="number" required value="${esc(item.attendeesCount || 118)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Lokasi *</label><input name="location" required value="${esc(item.location || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Kondisi</label><select name="condition" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"><option ${item.condition==='Lancar'?'selected':''}>Lancar</option><option ${item.condition==='Terkendali'?'selected':''}>Terkendali</option><option ${item.condition==='Perlu Perhatian'?'selected':''}>Perlu Perhatian</option></select></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Deskripsi Aktivitas *</label><textarea name="description" required rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.description || '')}</textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Catatan Pendamping</label><textarea name="companionNotes" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.companionNotes || '')}</textarea></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Kendala</label><textarea name="obstacles" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.obstacles || '')}</textarea></div>
+            <div><label class="block text-xs font-semibold mb-1">Solusi</label><textarea name="solutions" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.solutions || '')}</textarea></div>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Simpan Jurnal</button>
+          </div>
+        </form>
+      `);
+    }
+
+    function openEvalForm(id = '') {
+      const item = id ? state.data.evaluations.find(x => x.id === id) : {};
+      openModal(id ? 'Edit Evaluasi' : 'Tambah Evaluasi Kegiatan', `
+        <form onsubmit="saveGenericForm(event, 'Evaluations', '${esc(id)}')" class="space-y-3 text-sm">
+          <div><label class="block text-xs font-semibold mb-1">Tingkat Keberhasilan (%) *</label><input name="activitySuccessRate" type="number" min="0" max="100" required value="${esc(item.activitySuccessRate || 95)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Kesesuaian dengan Tujuan *</label><textarea name="goalAlignment" required rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.goalAlignment || '')}</textarea></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Tingkat Partisipasi Siswa *</label><input name="studentParticipationLevel" required value="${esc(item.studentParticipationLevel || 'Sangat Tinggi (98%)')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Kedisiplinan Peserta *</label><input name="participantDiscipline" required value="${esc(item.participantDiscipline || 'Tertib & Tepat Waktu')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Faktor Pendukung</label><textarea name="supportingFactors" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.supportingFactors || '')}</textarea></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Kendala</label><textarea name="obstacles" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.obstacles || '')}</textarea></div>
+            <div><label class="block text-xs font-semibold mb-1">Solusi</label><textarea name="solutions" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.solutions || '')}</textarea></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Rekomendasi Selanjutnya</label><textarea name="recommendations" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.recommendations || '')}</textarea></div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Simpan Evaluasi</button>
+          </div>
+        </form>
+      `);
+    }
+
+    /* =====================================================================
+     * DOKUMENTASI KEGIATAN (UPLOAD KE GOOGLE DRIVE + LIGHTBOX)
+     * ===================================================================== */
+    function renderDokumentasiModule() {
+      const staff = isStaff();
+      const docs = (state.data.documentation || []).filter(d => state.docCategoryFilter === 'ALL' || d.category === state.docCategoryFilter);
+      return `
+        <div class="space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-bold text-[#0F2547]">Dokumentasi Kegiatan (${docs.length})</h1>
+              <p class="text-sm text-slate-600">Galeri foto & video kunjungan edukatif (tersimpan di Google Drive).</p>
+            </div>
+            ${staff ? `<button onclick="openDocForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">+ Unggah Dokumentasi</button>` : ''}
+          </div>
+
+          <div class="flex flex-wrap gap-1.5">
+            <button onclick="state.docCategoryFilter='ALL'; render();" class="px-3 py-1.5 text-xs font-semibold rounded-lg border ${state.docCategoryFilter==='ALL' ? 'bg-[#0F2547] text-white border-[#0F2547]' : 'bg-white text-slate-700 border-slate-300'}">Semua</button>
+            ${DOC_CATEGORIES.map(c => `
+              <button onclick="state.docCategoryFilter='${esc(c)}'; render();" class="px-3 py-1.5 text-xs font-semibold rounded-lg border ${state.docCategoryFilter===c ? 'bg-[#0F2547] text-white border-[#0F2547]' : 'bg-white text-slate-700 border-slate-300'}">${esc(c)}</button>
+            `).join('')}
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            ${docs.map(item => `
+              <div class="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
+                <div class="aspect-video bg-slate-100 relative cursor-pointer overflow-hidden" onclick="openLightbox('${esc(item.id)}')">
+                  ${item.mediaType === 'video'
+                    ? `<div class="w-full h-full flex items-center justify-center bg-[#0F2547] text-white text-xs font-semibold">Klik untuk Putar / Buka Video</div>`
+                    : `<img src="${esc(item.fileUrl)}" alt="${esc(item.title)}" class="w-full h-full object-cover hover:scale-105 transition-transform" />`}
+                </div>
+                <div class="p-4 flex-1 flex flex-col justify-between space-y-2">
+                  <div>
+                    <span class="text-[11px] font-semibold text-[#C9A227] uppercase">${esc(item.category)}</span>
+                    <h3 class="text-sm font-semibold text-[#0F2547] mt-0.5">${esc(item.title)}</h3>
+                    <p class="text-xs text-slate-600 mt-1 line-clamp-2">${esc(item.caption)}</p>
+                  </div>
+                  <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>${esc(item.capturedDate)} · ${esc(item.location)}</span>
+                    ${staff ? `<button onclick="deleteItem('Documentation', '${esc(item.id)}', '${esc(item.title)}')" class="text-red-600 font-semibold hover:underline">Hapus</button>` : ''}
+                  </div>
+                </div>
+              </div>
+            `).join('') || '<div class="col-span-full bg-white border border-slate-200 rounded-xl p-12 text-center text-sm text-slate-400">Belum ada dokumentasi pada kategori ini.</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function openLightbox(id) {
+      const item = state.data.documentation.find(d => d.id === id);
+      if (!item) return;
+      openModal(item.title, `
+        <div class="space-y-3">
+          ${item.mediaType === 'video'
+            ? `<a href="${esc(item.fileUrl)}" target="_blank" class="inline-block px-4 py-2 bg-[#0F2547] text-white text-xs font-semibold rounded-lg">Buka Video di Tab Baru</a>`
+            : `<img src="${esc(item.fileUrl)}" class="w-full max-h-[60vh] object-contain rounded-lg bg-slate-100" />`}
+          <p class="text-sm text-slate-700">${esc(item.caption)}</p>
+          <p class="text-xs text-slate-500">${esc(item.category)} · ${esc(item.capturedDate)} · ${esc(item.location)}</p>
+        </div>
+      `, 'max-w-3xl');
+    }
+
+    function openDocForm() {
+      openModal('Unggah Dokumentasi ke Google Drive', `
+        <form onsubmit="submitDocForm(event)" class="space-y-3 text-sm">
+          <div><label class="block text-xs font-semibold mb-1">Judul Dokumentasi *</label><input name="title" required class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Kategori *</label><select name="category" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">${DOC_CATEGORIES.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
+            <div><label class="block text-xs font-semibold mb-1">Tipe Media</label><select name="mediaType" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"><option value="photo">Foto</option><option value="video">Video</option></select></div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Tanggal *</label><input name="capturedDate" type="date" required value="2026-02-14" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Lokasi *</label><input name="location" required value="Kompleks Makam & Museum Bung Karno" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Pilih File Foto/Video (Upload ke Drive)</label><input id="doc-file-input" type="file" accept="image/*,video/*" class="w-full text-xs border border-slate-300 rounded-lg p-2" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Atau URL Media Langsung</label><input name="fileUrl" placeholder="https://..." class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Keterangan Foto / Video *</label><textarea name="caption" required rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg"></textarea></div>
+          <label class="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name="isAllowedForStudent" checked /> Tampilkan pada galeri Siswa</label>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button id="doc-save-btn" type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Unggah & Simpan</button>
+          </div>
+        </form>
+      `);
+    }
+
+    async function submitDocForm(e) {
+      e.preventDefault();
+      const btn = document.getElementById('doc-save-btn');
+      btn.disabled = true; btn.textContent = 'Mengunggah...';
+      try {
+        const fd = new FormData(e.target);
+        const fileInput = document.getElementById('doc-file-input');
+        let fileUrl = String(fd.get('fileUrl') || '').trim();
+        let fileName = '';
+        if (fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          const b64 = await readFileBase64(file);
+          const up = await gasCall('uploadFileToDrive', state.token, file.name, file.type, b64);
+          fileUrl = up.fileUrl;
+          fileName = up.fileName;
+        }
+        if (!fileUrl) throw new Error('Pilih file untuk diunggah atau masukkan URL media.');
+        closeModal();
+        await runMutation(() => gasCall('upsertRecord', state.token, 'Documentation', {
+          title: fd.get('title'),
+          category: fd.get('category'),
+          mediaType: fd.get('mediaType'),
+          capturedDate: fd.get('capturedDate'),
+          location: fd.get('location'),
+          caption: fd.get('caption'),
+          fileUrl: fileUrl,
+          fileName: fileName,
+          isAllowedForStudent: !!fd.get('isAllowedForStudent')
+        }), 'Dokumentasi berhasil disimpan.');
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Unggah & Simpan';
+      }
+    }
+
+    function readFileBase64(file) {
+      return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || ''));
+        r.onerror = () => reject(new Error('Gagal membaca berkas.'));
+        r.readAsDataURL(file);
+      });
+    }
+
+    /* =====================================================================
+     * LKPD & REFLEKSI SISWA
+     * ===================================================================== */
+    function renderLkpdModule() {
+      const canGrade = ['SUPER_ADMIN', 'KETUA_PELAKSANA', 'GURU_PENDAMPING'].includes(effectiveRole());
+      if (state.subTab === 'Refleksi Siswa') {
+        const list = state.data.reflections || [];
+        return `
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 class="text-xl font-bold text-[#0F2547]">Hasil Observasi & Refleksi Siswa</h1>
+                <p class="text-sm text-slate-600">Catatan pengetahuan sejarah, keteladanan Ir. Soekarno, dan sikap nasionalisme.</p>
+              </div>
+              <button onclick="openReflectionForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">+ Tulis Refleksi</button>
+            </div>
+            <div class="space-y-4">
+              ${list.map(r => `
+                <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 class="text-base font-semibold text-[#0F2547]">${esc(r.studentName)} <span class="text-xs font-normal text-slate-500">(${esc(r.className)})</span></h3>
+                      <span class="inline-block mt-1 px-2 py-0.5 rounded text-[11px] font-semibold ${r.reviewStatus==='Dinilai' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}">
+                        ${esc(r.reviewStatus)}${r.teacherScore !== '' && r.teacherScore != null ? ' · Skor: ' + esc(r.teacherScore) : ''}
+                      </span>
+                    </div>
+                    <div class="flex gap-2">
+                      ${canGrade ? `<button onclick="openGradeModal('Reflections', '${esc(r.id)}')" class="px-3 py-1.5 text-xs font-semibold bg-[#C9A227] text-[#081429] rounded-lg">Beri Nilai</button>` : ''}
+                      ${(effectiveRole()==='SUPER_ADMIN' || r.reviewStatus==='Menunggu Penilaian') ? `<button onclick="openReflectionForm('${esc(r.id)}')" class="text-xs font-semibold text-[#0F2547] hover:underline">Edit</button>` : ''}
+                      ${effectiveRole()==='SUPER_ADMIN' ? `<button onclick="deleteItem('Reflections', '${esc(r.id)}', '${esc(r.studentName)}')" class="text-xs font-semibold text-red-600 hover:underline">Hapus</button>` : ''}
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-700 bg-slate-50 p-3.5 rounded-lg">
+                    <div><strong>Pengetahuan Baru:</strong> ${esc(r.newKnowledge)}</div>
+                    <div><strong>Nilai Sejarah:</strong> ${esc(r.historicalValues)}</div>
+                    <div><strong>Keteladanan Ir. Soekarno:</strong> ${esc(r.soekarnoExemplar)}</div>
+                    <div><strong>Kesimpulan:</strong> ${esc(r.learningConclusion)}</div>
+                  </div>
+                  ${r.teacherFeedback ? `<p class="text-xs text-emerald-800 bg-emerald-50/70 p-2.5 rounded-lg"><strong>Catatan Guru (${esc(r.reviewedByName)}):</strong> ${esc(r.teacherFeedback)}</p>` : ''}
+                </div>
+              `).join('') || '<div class="bg-white border border-slate-200 rounded-xl p-10 text-center text-sm text-slate-400">Belum ada refleksi siswa terkirim.</div>'}
+            </div>
+          </div>
+        `;
+      }
+
+      const lkpdList = state.data.lkpdSubmissions || [];
+      return `
+        <div class="space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-bold text-[#0F2547]">Instrumen LKPD Kokurikuler Siswa</h1>
+              <p class="text-sm text-slate-600">Lembar Kerja Peserta Didik Terpadu (Sejarah, PKn, Bahasa Indonesia, Ekonomi, PAI, dan Geografi).</p>
+            </div>
+            <button onclick="openLkpdForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">+ Isi Lembar LKPD</button>
+          </div>
+          <div class="space-y-4">
+            ${lkpdList.map(item => `
+              <div class="bg-white border border-slate-200 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <span class="px-2 py-0.5 rounded text-[11px] font-semibold ${item.reviewStatus==='Dinilai' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}">
+                    ${esc(item.reviewStatus)}${item.teacherScore !== '' && item.teacherScore != null ? ' · Nilai: ' + esc(item.teacherScore) : ''}
+                  </span>
+                  <h3 class="text-base font-semibold text-[#0F2547] mt-1">${esc(item.groupName)} — ${esc(item.studentName)} (${esc(item.className)})</h3>
+                  <p class="text-xs text-slate-500 mt-0.5">Anggota: ${esc(item.members || '-')}</p>
+                  ${item.teacherFeedback ? `<p class="text-xs text-emerald-800 mt-1.5">Catatan Penilai: ${esc(item.teacherFeedback)}</p>` : ''}
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button onclick="previewLkpd('${esc(item.id)}')" class="px-3 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg hover:bg-slate-50">Lihat Jawaban</button>
+                  ${canGrade ? `<button onclick="openGradeModal('LkpdSubmissions', '${esc(item.id)}')" class="px-3 py-1.5 text-xs font-semibold bg-[#C9A227] text-[#081429] rounded-lg">Beri Nilai</button>` : ''}
+                  ${(effectiveRole()==='SUPER_ADMIN' || item.reviewStatus==='Menunggu Penilaian') ? `<button onclick="openLkpdForm('${esc(item.id)}')" class="px-3 py-1.5 text-xs font-semibold text-[#0F2547] border border-slate-300 rounded-lg">Edit</button>` : ''}
+                  ${effectiveRole()==='SUPER_ADMIN' ? `<button onclick="deleteItem('LkpdSubmissions', '${esc(item.id)}', '${esc(item.groupName)}')" class="px-3 py-1.5 text-xs font-semibold text-red-600">Hapus</button>` : ''}
+                </div>
+              </div>
+            `).join('') || '<div class="bg-white border border-slate-200 rounded-xl p-10 text-center text-sm text-slate-400">Belum ada lembar LKPD yang dikumpulkan.</div>'}
+          </div>
+        </div>
+      `;
+    }
+
+    function openLkpdForm(id = '') {
+      const item = id ? state.data.lkpdSubmissions.find(x => x.id === id) : { studentName: state.user.displayName, className: state.user.className || 'XI IPA 1' };
+      openModal(id ? 'Edit Jawaban LKPD' : 'Formulir Instrumen LKPD Siswa', `
+        <form onsubmit="saveGenericForm(event, 'LkpdSubmissions', '${esc(id)}')" class="space-y-4 text-sm">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Nama Pengirim *</label><input name="studentName" required value="${esc(item.studentName || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Kelas *</label><input name="className" required value="${esc(item.className || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Nama Kelompok *</label><input name="groupName" required placeholder="Kelompok 1" value="${esc(item.groupName || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Daftar Anggota Kelompok</label><input name="members" placeholder="Nama 1, Nama 2, Nama 3..." value="${esc(item.members || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          ${LKPD_SUBJECTS.map(sub => `
+            <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+              <h4 class="text-xs font-bold text-[#0F2547] uppercase tracking-wide">${esc(sub.title)}</h4>
+              <div><label class="block text-xs font-medium text-slate-700 mb-1">1. ${esc(sub.q1Label)}</label><textarea name="${sub.q1Key}" rows="2" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white">${esc(item[sub.q1Key] || '')}</textarea></div>
+              <div><label class="block text-xs font-medium text-slate-700 mb-1">2. ${esc(sub.q2Label)}</label><textarea name="${sub.q2Key}" rows="2" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white">${esc(item[sub.q2Key] || '')}</textarea></div>
+            </div>
+          `).join('')}
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button type="submit" class="px-5 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Kirim LKPD</button>
+          </div>
+        </form>
+      `, 'max-w-3xl');
+    }
+
+    function previewLkpd(id) {
+      const item = state.data.lkpdSubmissions.find(x => x.id === id);
+      if (!item) return;
+      openModal(`Jawaban LKPD - ${item.groupName}`, `
+        <div class="space-y-4 text-xs">
+          <div class="p-3 bg-slate-50 rounded-lg"><strong>Siswa:</strong> ${esc(item.studentName)} (${esc(item.className)}) · <strong>Anggota:</strong> ${esc(item.members || '-')}</div>
+          ${LKPD_SUBJECTS.map(sub => `
+            <div class="border border-slate-200 rounded-lg p-3 space-y-1.5">
+              <p class="font-bold text-[#0F2547]">${esc(sub.title)}</p>
+              <p><strong>1. ${esc(sub.q1Label)}</strong><br/>${esc(item[sub.q1Key] || '-')}</p>
+              <p><strong>2. ${esc(sub.q2Label)}</strong><br/>${esc(item[sub.q2Key] || '-')}</p>
+            </div>
+          `).join('')}
+        </div>
+      `, 'max-w-3xl');
+    }
+
+    function openReflectionForm(id = '') {
+      const item = id ? state.data.reflections.find(x => x.id === id) : { studentName: state.user.displayName, className: state.user.className || 'XI IPA 1' };
+      openModal(id ? 'Edit Refleksi Belajar' : 'Tulis Refleksi Pembelajaran', `
+        <form onsubmit="saveGenericForm(event, 'Reflections', '${esc(id)}')" class="space-y-3 text-sm">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Nama Siswa *</label><input name="studentName" required value="${esc(item.studentName || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Kelas *</label><input name="className" required value="${esc(item.className || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Pengetahuan Baru yang Diperoleh *</label><textarea name="newKnowledge" required rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.newKnowledge || '')}</textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Nilai Sejarah yang Dipelajari *</label><textarea name="historicalValues" required rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.historicalValues || '')}</textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Keteladanan Ir. Soekarno *</label><textarea name="soekarnoExemplar" required rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.soekarnoExemplar || '')}</textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Pengalaman Paling Berkesan</label><textarea name="memorableExperience" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.memorableExperience || '')}</textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Sikap Nasionalisme yang Diterapkan</label><textarea name="nationalismApplication" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.nationalismApplication || '')}</textarea></div>
+          <div><label class="block text-xs font-semibold mb-1">Kesimpulan Pembelajaran *</label><textarea name="learningConclusion" required rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(item.learningConclusion || '')}</textarea></div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Simpan Refleksi</button>
+          </div>
+        </form>
+      `, 'max-w-2xl');
+    }
+
+    function openGradeModal(sheetName, id) {
+      const list = sheetName === 'LkpdSubmissions' ? state.data.lkpdSubmissions : state.data.reflections;
+      const item = (list || []).find(x => x.id === id) || {};
+      const label = item.groupName ? `${item.groupName} (${item.studentName || ''})` : (item.studentName || 'Siswa');
+      const curScore = item.teacherScore !== '' && item.teacherScore != null ? item.teacherScore : 90;
+      const curFeedback = item.teacherFeedback || '';
+      openModal(`Penilaian Guru - ${label}`, `
+        <form onsubmit="submitGradeForm(event, '${esc(sheetName)}', '${esc(id)}')" class="space-y-3 text-sm">
+          <div><label class="block text-xs font-semibold mb-1">Nilai / Skor (0 - 100) *</label><input name="score" type="number" min="0" max="100" required value="${esc(curScore)}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Umpan Balik / Catatan Guru</label><textarea name="feedback" rows="3" class="w-full px-3 py-2 border border-slate-300 rounded-lg">${esc(curFeedback)}</textarea></div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Simpan Nilai</button>
+          </div>
+        </form>
+      `, 'max-w-md');
+    }
+
+    async function submitGradeForm(e, sheetName, id) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      closeModal();
+      await runMutation(() => gasCall('gradeStudentItem', state.token, sheetName, id, Number(fd.get('score')), String(fd.get('feedback') || '')), 'Nilai siswa berhasil disimpan.');
+    }
+
+    /* =====================================================================
+     * LAPORAN OTOMATIS & ARSIP DIGITAL
+     * ===================================================================== */
+    function renderLaporanModule() {
+      if (state.subTab === 'Arsip Digital') {
+        const archives = state.data.archives || [];
+        return `
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 class="text-xl font-bold text-[#0F2547]">Arsip Digital Sekolah (${archives.length})</h1>
+                <p class="text-sm text-slate-600">Dokumen surat izin, surat tugas, proposal, RAB, dan daftar hadir kegiatan.</p>
+              </div>
+              <button onclick="openArchiveForm()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">+ Unggah Arsip</button>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <table class="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
+                    <th class="py-3 px-4">Kategori</th>
+                    <th class="py-3 px-4">Judul Dokumen</th>
+                    <th class="py-3 px-4">Nomor & Tanggal</th>
+                    <th class="py-3 px-4 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${archives.map(a => `
+                    <tr>
+                      <td class="py-3 px-4 text-xs font-semibold text-[#0F2547]">${esc(a.category)}</td>
+                      <td class="py-3 px-4 font-medium">${esc(a.title)}<p class="text-xs text-slate-500">${esc(a.description || '')}</p></td>
+                      <td class="py-3 px-4 text-xs">${esc(a.documentNumber || '-')} · ${esc(a.documentDate)}</td>
+                      <td class="py-3 px-4 text-right whitespace-nowrap">
+                        <a href="${esc(a.fileUrl)}" target="_blank" class="text-xs font-semibold text-[#0F2547] mr-3 hover:underline">Buka Berkas</a>
+                        <button onclick="deleteItem('Archives', '${esc(a.id)}', '${esc(a.title)}')" class="text-xs font-semibold text-red-600 hover:underline">Hapus</button>
+                      </td>
+                    </tr>
+                  `).join('') || '<tr><td colspan="4" class="py-10 text-center text-slate-400">Belum ada arsip digital tersimpan.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+
+      const reports = state.data.reports || [];
+      const active = reports.find(r => r.id === state.selectedReportId) || reports[0] || null;
+      const canCompose = ['SUPER_ADMIN', 'KETUA_PELAKSANA'].includes(effectiveRole());
+      const canApprove = ['SUPER_ADMIN', 'KEPALA_SEKOLAH'].includes(effectiveRole());
+
+      return `
+        <div class="space-y-4">
+          <div class="no-print flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-bold text-[#0F2547]">Laporan Otomatis Kegiatan</h1>
+              <p class="text-sm text-slate-600">Menyusun dokumen laporan pertanggungjawaban BAB I – BAB V secara otomatis.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              ${canCompose ? `<button onclick="generateAutoReport()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Buat Laporan Otomatis</button>` : ''}
+              ${active ? `<button onclick="window.print()" class="px-3.5 py-2 text-xs font-semibold border border-slate-300 bg-white rounded-lg">Cetak / Simpan PDF</button>` : ''}
+              ${active ? `<button onclick="exportActiveReportWord()" class="px-3.5 py-2 text-xs font-semibold border border-slate-300 bg-white rounded-lg">Unduh Word (.doc)</button>` : ''}
+            </div>
+          </div>
+
+          ${reports.length > 1 ? `
+            <div class="no-print flex flex-wrap gap-2">
+              ${reports.map(r => `
+                <button onclick="state.selectedReportId='${esc(r.id)}'; render();" class="px-3 py-1.5 text-xs font-semibold rounded-lg border ${active && active.id===r.id ? 'bg-[#0F2547] text-white' : 'bg-white text-slate-700'}">${esc(r.reportNumber)} (${esc(r.status)})</button>
+              `).join('')}
+            </div>` : ''}
+
+          ${active ? `
+            <div id="printable-report" class="bg-white border border-slate-200 rounded-xl p-8 lg:p-12 space-y-6 text-sm leading-relaxed">
+              <div class="text-center border-b-2 border-[#0F2547] pb-4">
+                <p class="text-xs font-semibold uppercase tracking-widest text-slate-600">${esc(state.data.schoolProfile?.schoolName || 'SMA Darul Ulum Kepohbaru')}</p>
+                <h2 class="text-lg font-bold text-[#0F2547] mt-1">${esc(active.title)}</h2>
+                <p class="text-xs text-slate-500 mt-1">Nomor: ${esc(active.reportNumber)} · Tahun Pelajaran ${esc(active.academicYear)} · Status: <strong>${esc(active.status)}</strong></p>
+              </div>
+
+              <section class="space-y-2"><h3 class="font-bold text-[#0F2547]">BAB I. PENDAHULUAN</h3>
+                <p><strong>A. Latar Belakang:</strong><br/>${esc(active.bab1Background).replace(/\n/g,'<br/>')}</p>
+                <p><strong>B. Dasar Pelaksanaan:</strong><br/>${esc(active.bab1Basis).replace(/\n/g,'<br/>')}</p>
+                <p><strong>C. Tujuan Kegiatan:</strong><br/>${esc(active.bab1Purpose).replace(/\n/g,'<br/>')}</p>
+                <p><strong>D. Manfaat Kegiatan:</strong><br/>${esc(active.bab1Benefits).replace(/\n/g,'<br/>')}</p>
+              </section>
+
+              <section class="space-y-2"><h3 class="font-bold text-[#0F2547]">BAB II. PELAKSANAAN KEGIATAN</h3>
+                <p><strong>A. Identitas Kegiatan:</strong><br/>${esc(active.bab2Identity).replace(/\n/g,'<br/>')}</p>
+                <p><strong>B. Waktu dan Tempat:</strong><br/>${esc(active.bab2ScheduleTimePlace).replace(/\n/g,'<br/>')}</p>
+                <p><strong>C. Peserta Kegiatan:</strong><br/>${esc(active.bab2ParticipantsSummary)}</p>
+                <p><strong>D. Guru Pendamping:</strong><br/>${esc(active.bab2TeachersSummary)}</p>
+                <p><strong>E. Rincian Pelaksanaan:</strong><br/>${esc(active.bab2ExecutionNarrative).replace(/\n/g,'<br/>')}</p>
+              </section>
+
+              <section class="space-y-2"><h3 class="font-bold text-[#0F2547]">BAB III. HASIL KEGIATAN DAN PEMBELAJARAN SISWA</h3>
+                <p><strong>A. Hasil Kunjungan Edukatif:</strong><br/>${esc(active.bab3VisitResults)}</p>
+                <p><strong>B. Hasil Observasi & Refleksi Siswa:</strong><br/>${esc(active.bab3StudentObservations).replace(/\n/g,'<br/>')}</p>
+                <p><strong>C. Nilai Sejarah & Nasionalisme:</strong><br/>${esc(active.bab3NationalismValues)}</p>
+                <p><strong>D. Ringkasan Penilaian Refleksi & LKPD:</strong><br/>${esc(active.bab3ReflectionSummary)}</p>
+              </section>
+
+              <section class="space-y-2"><h3 class="font-bold text-[#0F2547]">BAB IV. EVALUASI KEGIATAN</h3>
+                <p><strong>A. Evaluasi Pelaksanaan:</strong><br/>${esc(active.bab4Evaluation)}</p>
+                <p><strong>B. Faktor Pendukung:</strong><br/>${esc(active.bab4SupportingFactors)}</p>
+                <p><strong>C. Kendala dan Solusi:</strong><br/>${esc(active.bab4ObstaclesSolutions)}</p>
+                <p><strong>D. Rekomendasi:</strong><br/>${esc(active.bab4Recommendations)}</p>
+              </section>
+
+              <section class="space-y-2"><h3 class="font-bold text-[#0F2547]">BAB V. PENUTUP</h3>
+                <p><strong>A. Kesimpulan:</strong><br/>${esc(active.bab5Conclusion)}</p>
+                <p><strong>B. Saran:</strong><br/>${esc(active.bab5Suggestions)}</p>
+              </section>
+
+              <div class="pt-6 border-t border-slate-200 grid grid-cols-2 gap-8 text-xs text-center">
+                <div><p>Mengetahui,<br/>Kepala ${esc(state.data.schoolProfile?.schoolName)}</p><div class="h-14"></div><p class="font-bold underline">${esc(state.data.schoolProfile?.principalName)}</p><p>NIP. ${esc(state.data.schoolProfile?.principalNip || '-')}</p></div>
+                <div><p>Kepohbaru, ${new Date().toLocaleDateString('id-ID', {dateStyle:'long'})}<br/>Ketua Pelaksana</p><div class="h-14"></div><p class="font-bold underline">${esc(state.data.activity?.chiefExecutive || '-')}</p></div>
+              </div>
+            </div>
+
+            ${canApprove ? `
+              <div class="no-print bg-white border border-slate-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 class="text-sm font-semibold text-[#0F2547]">Persetujuan Kepala Sekolah</h3>
+                  <p class="text-xs text-slate-500">Sahkan laporan untuk pengarsipan resmi sekolah.</p>
+                </div>
+                <div class="flex gap-2">
+                  <button onclick="approveReport('${esc(active.id)}', 'Disetujui')" class="px-4 py-2 text-xs font-semibold bg-emerald-700 text-white rounded-lg">Setujui Laporan</button>
+                  <button onclick="approveReport('${esc(active.id)}', 'Revisi')" class="px-4 py-2 text-xs font-semibold bg-amber-600 text-white rounded-lg">Minta Revisi</button>
+                </div>
+              </div>` : ''}
+          ` : '<div class="bg-white border border-slate-200 rounded-xl p-12 text-center text-sm text-slate-500">Klik tombol <strong>Buat Laporan Otomatis</strong> untuk menyusun dokumen laporan dari seluruh data kegiatan yang telah masuk.</div>'}
+        </div>
+      `;
+    }
+
+    async function generateAutoReport() {
+      const d = state.data;
+      const act = d.activity || {};
+      const sp = d.schoolProfile || {};
+      const present = d.students.filter(s => s.participationStatus === 'Hadir').length;
+      const latestEval = d.evaluations[0];
+      const journalSummary = d.journals.map((j, i) => `${i+1}. [${j.date} · ${j.time}] ${j.location}: ${j.description} (Hadir: ${j.attendeesCount} siswa).`).join('\n') || 'Kegiatan berjalan tertib dan lancar.';
+      const refSummary = d.reflections.slice(0, 5).map(r => `- ${r.studentName} (${r.className}): ${r.historicalValues}`).join('\n') || 'Peserta didik menyerap nilai perjuangan Ir. Soekarno dengan baik.';
+
+      const payload = {
+        title: `Laporan Pertanggungjawaban ${act.name || 'Kegiatan Kokurikuler 2026'}`,
+        reportNumber: `421.3/045/SMA-DU/${act.year || 2026}`,
+        academicYear: sp.academicYear || '2025/2026',
+        status: 'Draft',
+        bab1Background: act.background || '-',
+        bab1Basis: act.legalBasis || '-',
+        bab1Purpose: act.purpose || '-',
+        bab1Benefits: '1. Memperkuat pembelajaran sejarah dan karakter kebangsaan siswa.\n2. Mengintegrasikan proyek kokurikuler lintas mata pelajaran.',
+        bab2Identity: `Nama Kegiatan: ${act.name}\nTema: ${act.theme}\nPenanggung Jawab: ${act.personInCharge}\nKetua Pelaksana: ${act.chiefExecutive}\nPembiayaan: ${act.fundingSource}`,
+        bab2ScheduleTimePlace: `Hari/Tanggal: ${act.dayDate}\nBerangkat: ${act.departureTime}\nTujuan: ${act.destination} (${act.destinationAddress})\nTotal Agenda: ${d.schedules.length} sesi`,
+        bab2ParticipantsSummary: `Total peserta terdaftar ${d.students.length} siswa (${present} siswa tercatat hadir).`,
+        bab2TeachersSummary: `Didampingi oleh ${d.teachers.length} guru pendamping (${d.teachers.map(t=>t.name).join(', ')}).`,
+        bab2ExecutionNarrative: journalSummary,
+        bab3VisitResults: `Kunjungan edukatif ke Makam dan Museum Bung Karno terlaksana baik dengan ${d.documentation.length} arsip foto/video.`,
+        bab3StudentObservations: refSummary,
+        bab3NationalismValues: 'Semangat persatuan, cinta tanah air, pantang menyerah, dan penghargaan terhadap jasa pahlawan.',
+        bab3ReflectionSummary: `Tercatat ${d.lkpdSubmissions.length} lembar LKPD kelompok dan ${d.reflections.length} refleksi siswa.`,
+        bab4Evaluation: latestEval ? `Keberhasilan ${latestEval.activitySuccessRate}%. ${latestEval.goalAlignment}` : 'Pelaksanaan berjalan sangat baik sesuai tujuan.',
+        bab4SupportingFactors: latestEval ? latestEval.supportingFactors : 'Sinergi guru pendamping, sekolah, komite, dan kedisiplinan siswa.',
+        bab4ObstaclesSolutions: latestEval ? `${latestEval.obstacles} | Solusi: ${latestEval.solutions}` : 'Tidak terdapat kendala berarti.',
+        bab4Recommendations: latestEval ? latestEval.recommendations : 'Kegiatan layak dilanjutkan dan ditingkatkan pada tahun pelajaran berikutnya.',
+        bab5Conclusion: 'Seluruh rangkaian kegiatan kokurikuler 2026 berjalan lancar, tertib, dan memberikan dampak edukatif optimal.',
+        bab5Suggestions: 'Dokumentasi dan instrumen LKPD agar terus diarsipkan secara digital sebagai bahan evaluasi kurikulum.'
+      };
+      await runMutation(() => gasCall('upsertRecord', state.token, 'Reports', payload), 'Laporan otomatis BAB I - V berhasil disusun.');
+    }
+
+    async function approveReport(reportId, status) {
+      const r = (state.data.reports || []).find(x => x.id === reportId);
+      const reportTitle = r ? r.title : 'Laporan Kegiatan Kokurikuler';
+      await runMutation(() => gasCall('submitApprovalDecision', state.token, reportId, reportTitle, status, `Keputusan kepala sekolah: ${status}`), `Status laporan diperbarui menjadi ${status}.`);
+    }
+
+    function exportActiveReportWord() {
+      const el = document.getElementById('printable-report');
+      if (!el) return;
+      const html = `<html><head><meta charset="utf-8"><style>body{font-family:'Times New Roman',serif;line-height:1.6;} h2,h3{color:#0F2547;}</style></head><body>${el.innerHTML}</body></html>`;
+      const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'Laporan_Kokurikuler_SMA_Darul_Ulum_2026.doc';
+      a.click();
+    }
+
+    function openArchiveForm() {
+      openModal('Unggah Arsip Digital ke Google Drive', `
+        <form onsubmit="submitArchiveForm(event)" class="space-y-3 text-sm">
+          <div><label class="block text-xs font-semibold mb-1">Kategori Arsip *</label><select name="category" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white">${ARCHIVE_CATEGORIES.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div>
+          <div><label class="block text-xs font-semibold mb-1">Judul Dokumen *</label><input name="title" required class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold mb-1">Nomor Dokumen</label><input name="documentNumber" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            <div><label class="block text-xs font-semibold mb-1">Tanggal *</label><input name="documentDate" type="date" required value="2026-02-14" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          </div>
+          <div><label class="block text-xs font-semibold mb-1">Unggah Berkas (PDF / Gambar / Dokumen)</label><input id="arc-file-input" type="file" class="w-full text-xs border border-slate-300 rounded-lg p-2" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Atau Tautan URL</label><input name="fileUrl" placeholder="https://..." class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold mb-1">Keterangan</label><textarea name="description" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg"></textarea></div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" onclick="closeModal()" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg">Batal</button>
+            <button id="arc-save-btn" type="submit" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Simpan Arsip</button>
+          </div>
+        </form>
+      `);
+    }
+
+    async function submitArchiveForm(e) {
+      e.preventDefault();
+      const btn = document.getElementById('arc-save-btn');
+      btn.disabled = true; btn.textContent = 'Mengunggah...';
+      try {
+        const fd = new FormData(e.target);
+        const fileInput = document.getElementById('arc-file-input');
+        let fileUrl = String(fd.get('fileUrl') || '').trim();
+        let fileName = '';
+        if (fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          const b64 = await readFileBase64(file);
+          const up = await gasCall('uploadFileToDrive', state.token, file.name, file.type, b64);
+          fileUrl = up.fileUrl; fileName = up.fileName;
+        }
+        if (!fileUrl) throw new Error('Pilih berkas atau masukkan tautan URL.');
+        closeModal();
+        await runMutation(() => gasCall('upsertRecord', state.token, 'Archives', {
+          category: fd.get('category'),
+          title: fd.get('title'),
+          documentNumber: fd.get('documentNumber'),
+          documentDate: fd.get('documentDate'),
+          description: fd.get('description'),
+          fileUrl: fileUrl,
+          fileName: fileName
+        }), 'Arsip digital berhasil disimpan.');
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Simpan Arsip';
+      }
+    }
+
+    /* =====================================================================
+     * PENGATURAN & MANAJEMEN PENGGUNA
+     * ===================================================================== */
+    function renderPengaturanModule() {
+      if (effectiveRole() !== 'SUPER_ADMIN') {
+        return '<div class="bg-white border border-slate-200 rounded-xl p-10 text-center text-sm text-slate-600">Hanya Admin / Super Admin yang dapat mengakses pengaturan.</div>';
+      }
+      if (state.subTab === 'Identitas Sekolah') {
+        const sp = state.data.schoolProfile || {};
+        return `
+          <form onsubmit="submitSchoolForm(event)" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4 text-sm">
+            <h1 class="text-xl font-bold text-[#0F2547] border-b border-slate-100 pb-3">Identitas Sekolah</h1>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><label class="block text-xs font-semibold mb-1">Nama Sekolah *</label><input name="schoolName" required value="${esc(sp.schoolName || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+              <div><label class="block text-xs font-semibold mb-1">NPSN</label><input name="npsn" value="${esc(sp.npsn || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono" /></div>
+              <div class="md:col-span-2"><label class="block text-xs font-semibold mb-1">Alamat *</label><input name="address" required value="${esc(sp.address || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+              <div><label class="block text-xs font-semibold mb-1">Kepala Sekolah *</label><input name="principalName" required value="${esc(sp.principalName || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+              <div><label class="block text-xs font-semibold mb-1">NIP Kepala Sekolah</label><input name="principalNip" value="${esc(sp.principalNip || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono" /></div>
+              <div><label class="block text-xs font-semibold mb-1">Tahun Pelajaran *</label><input name="academicYear" required value="${esc(sp.academicYear || '2025/2026')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+              <div><label class="block text-xs font-semibold mb-1">Telepon</label><input name="phone" value="${esc(sp.phone || '')}" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            </div>
+            <div class="flex justify-end"><button type="submit" class="px-5 py-2.5 bg-[#0F2547] text-white text-xs font-semibold rounded-lg">Simpan Identitas Sekolah</button></div>
+          </form>
+        `;
+      }
+
+      if (state.subTab === 'Backup & Audit') {
+        return `
+          <div class="space-y-4">
+            <div class="bg-white border border-slate-200 rounded-xl p-6 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 class="text-base font-semibold text-[#0F2547]">Database Google Sheets & Backup JSON</h2>
+                <p class="text-xs text-slate-600 mt-1">Buka Google Spreadsheet database langsung atau unduh salinan JSON lokal.</p>
+              </div>
+              <div class="flex gap-2">
+                ${state.data.spreadsheetUrl ? `<a href="${esc(state.data.spreadsheetUrl)}" target="_blank" class="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-lg hover:bg-slate-50">Buka Google Sheets</a>` : ''}
+                <button onclick="downloadBackupJson()" class="px-4 py-2 text-xs font-semibold bg-[#0F2547] text-white rounded-lg">Unduh Backup JSON</button>
+              </div>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <div class="px-5 py-3.5 border-b border-slate-100 font-semibold text-sm text-[#0F2547]">Riwayat Perubahan Data</div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse">
+                  <thead><tr class="bg-slate-50 border-b border-slate-200 text-slate-600"><th class="py-2.5 px-4">Aksi</th><th class="py-2.5 px-4">Modul</th><th class="py-2.5 px-4">Ringkasan</th><th class="py-2.5 px-4">Pengguna</th></tr></thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${(state.data.auditLogs || []).map(a => `<tr><td class="py-2 px-4 font-mono font-semibold">${esc(a.action)}</td><td class="py-2 px-4">${esc(a.module)}</td><td class="py-2 px-4">${esc(a.summary)}</td><td class="py-2 px-4 text-slate-500">${esc(a.actorName)}</td></tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const users = state.data.users || [];
+      return `
+        <div class="space-y-6">
+          <form onsubmit="submitAddUserForm(event)" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+            <h2 class="text-base font-semibold text-[#0F2547] border-b border-slate-100 pb-2">Tambah Akun Pengguna Baru (Admin / Guru / Siswa)</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+              <div><label class="block text-xs font-semibold mb-1">Nama Lengkap *</label><input name="displayName" required placeholder="Contoh: Ahmad Zaki" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+              <div><label class="block text-xs font-semibold mb-1">Username Login</label><input name="username" placeholder="Contoh: guru1 / siswa1" class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono" /></div>
+              <div><label class="block text-xs font-semibold mb-1">Alamat Email (Opsional)</label><input name="email" type="email" placeholder="nama@sekolah.sch.id" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+              <div><label class="block text-xs font-semibold mb-1">Kata Sandi *</label><input name="password" type="password" required placeholder="Masukkan kata sandi" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+              <div><label class="block text-xs font-semibold mb-1">Peran *</label><select name="role" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"><option value="SISWA">Siswa</option><option value="GURU_PENDAMPING">Guru Pendamping</option><option value="KETUA_PELAKSANA">Ketua Pelaksana</option><option value="KEPALA_SEKOLAH">Kepala Sekolah</option><option value="SUPER_ADMIN">Super Admin</option></select></div>
+              <div><label class="block text-xs font-semibold mb-1">Kelas / NIP / NISN</label><input name="className" placeholder="XI IPA 1" class="w-full px-3 py-2 border border-slate-300 rounded-lg" /></div>
+            </div>
+            <div class="flex justify-end"><button type="submit" class="px-5 py-2.5 bg-[#0F2547] text-white text-xs font-semibold rounded-lg">+ Tambahkan Pengguna</button></div>
+          </form>
+
+          <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div class="px-5 py-3.5 border-b border-slate-100 font-semibold text-sm text-[#0F2547]">Daftar Pengguna Terdaftar (${users.length})</div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm border-collapse">
+                <thead><tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600"><th class="py-3 px-4">Nama</th><th class="py-3 px-4">Username / Email</th><th class="py-3 px-4">Kelas</th><th class="py-3 px-4">Peran</th><th class="py-3 px-4">Status</th></tr></thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${users.map(u => `
+                    <tr>
+                      <td class="py-2.5 px-4 font-medium">${esc(u.displayName)}</td>
+                      <td class="py-2.5 px-4 font-mono text-xs">${u.username ? `<strong class="text-[#0F2547]">${esc(u.username)}</strong><div class="text-[11px] text-slate-400">${esc(u.email)}</div>` : esc(u.email)}</td>
+                      <td class="py-2.5 px-4 text-xs">${esc(u.className || '-')}</td>
+                      <td class="py-2.5 px-4">
+                        <select onchange="changeUserAccess('${esc(u.uid)}', this.value, '${esc(u.status)}')" ${u.uid===state.user.uid ? 'disabled' : ''} class="text-xs px-2 py-1 border border-slate-300 rounded bg-white">
+                          ${Object.keys(ROLE_LABELS).map(rk => `<option value="${rk}" ${u.role===rk?'selected':''}>${ROLE_LABELS[rk]}</option>`).join('')}
+                        </select>
+                      </td>
+                      <td class="py-2.5 px-4">
+                        <select onchange="changeUserAccess('${esc(u.uid)}', '${esc(u.role)}', this.value)" ${u.uid===state.user.uid ? 'disabled' : ''} class="text-xs px-2 py-1 border border-slate-300 rounded bg-white">
+                          <option value="active" ${u.status==='active'?'selected':''}>Aktif</option>
+                          <option value="inactive" ${u.status==='inactive'?'selected':''}>Nonaktif</option>
+                        </select>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitSchoolForm(e) {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      await runMutation(() => gasCall('saveSchoolProfile', state.token, data), 'Identitas sekolah berhasil disimpan.');
+    }
+
+    async function submitAddUserForm(e) {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      await runMutation(() => gasCall('createOrUpdateUser', state.token, data), 'Akun pengguna berhasil ditambahkan.');
+    }
+
+    async function changeUserAccess(uid, role, status) {
+      await runMutation(() => gasCall('updateUserRoleStatus', state.token, uid, role, status), 'Hak akses pengguna diperbarui.');
+    }
+
+    function downloadBackupJson() {
+      const blob = new Blob([JSON.stringify(state.data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Backup_Kokurikuler_GAS_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+    }
+
+    /* =====================================================================
+     * GENERIC SAVE & DELETE HELPERS
+     * ===================================================================== */
+    async function saveGenericForm(e, sheetName, id) {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      if (id) data.id = id;
+      closeModal();
+      await runMutation(() => gasCall('upsertRecord', state.token, sheetName, data), 'Data berhasil disimpan.');
+    }
+
+    function deleteItem(sheetName, id, label) {
+      confirmAction('Hapus Data?', `Anda yakin ingin menghapus "${label}"?`, async () => {
+        await runMutation(() => gasCall('deleteRecord', state.token, sheetName, id), 'Data berhasil dihapus.');
+      });
+    }
+
+    /* =====================================================================
+     * SHELL & MAIN RENDER
+     * ===================================================================== */
+    function renderModuleBody() {
+      switch (state.activeMenu) {
+        case 'dashboard': return renderDashboard();
+        case 'identitas': return renderIdentitasModule();
+        case 'peserta': return renderPesertaModule();
+        case 'jurnal': return renderJurnalModule();
+        case 'dokumentasi': return renderDokumentasiModule();
+        case 'lkpd': return renderLkpdModule();
+        case 'laporan': return renderLaporanModule();
+        case 'pengaturan': return renderPengaturanModule();
+        default: return renderDashboard();
+      }
+    }
+
+    function render() {
+      const root = document.getElementById('app-root');
+      if (state.loading) {
+        root.innerHTML = `<div class="min-h-screen flex items-center justify-center"><div class="text-center space-y-2"><div class="w-8 h-8 border-2 border-[#0F2547] border-t-[#C9A227] rounded-full animate-spin mx-auto"></div><p class="text-sm text-slate-600">Memuat Sistem Kokurikuler...</p></div></div>`;
+        return;
+      }
+      if (!state.user || !state.data) {
+        root.innerHTML = renderLogin();
+        lucide.createIcons();
+        return;
+      }
+
+      const menus = getNavMenus();
+      const curMenu = menus.find(m => m.id === state.activeMenu) || menus[0];
+      if (curMenu && curMenu.tabs.length && !curMenu.tabs.includes(state.subTab)) {
+        state.subTab = curMenu.tabs[0];
+      }
+
+      const schoolName = state.data.schoolProfile?.schoolName || 'SMA Darul Ulum Kepohbaru';
+
+      root.innerHTML = `
+        <div class="min-h-screen flex flex-col">
+          <header class="no-print sticky top-0 z-30 h-16 bg-[#0F2547] text-white border-b border-[#1E4480] px-4 lg:px-6 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 min-w-0">
+              <button onclick="state.mobileDrawer=true; render();" class="lg:hidden p-2 rounded-lg text-slate-200 hover:bg-[#173463]">
+                <i data-lucide="menu" class="w-5 h-5"></i>
+              </button>
+              <div class="w-9 h-9 rounded-lg bg-[#173463] border border-[#2B569C] flex items-center justify-center shrink-0">
+                <i data-lucide="graduation-cap" class="w-5 h-5 text-[#E0BD4F]"></i>
+              </div>
+              <div class="min-w-0">
+                <p class="text-sm font-semibold truncate">SISTEM PELAPORAN KOKURIKULER SMA DARUL ULUM</p>
+                <p class="text-xs text-[#E0BD4F] truncate hidden sm:block">${esc(schoolName)} · Bojonegoro · 2026</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+              ${state.user.role === 'SUPER_ADMIN' ? `
+                <select onchange="state.previewRole = this.value==='SUPER_ADMIN'?null:this.value; selectMenu('dashboard');" class="hidden md:block bg-[#081429] border border-[#1E4480] text-xs px-2.5 py-1.5 rounded-lg text-white">
+                  ${Object.keys(ROLE_LABELS).map(r => `<option value="${r}" ${effectiveRole()===r?'selected':''}>${r==='SUPER_ADMIN'?'Super Admin':'Pratinjau: '+ROLE_LABELS[r]}</option>`).join('')}
+                </select>` : ''}
+              <div class="hidden sm:block text-right leading-tight">
+                <p class="text-xs font-semibold">${esc(state.user.displayName)}</p>
+                <p class="text-[11px] text-[#E0BD4F]">${esc(ROLE_LABELS[effectiveRole()])}</p>
+              </div>
+              <button onclick="handleLogout()" class="px-3 py-1.5 bg-[#173463] hover:bg-[#1E4480] border border-[#2B569C] rounded-lg text-xs font-medium">Keluar</button>
+            </div>
+          </header>
+
+          <div class="flex-1 flex">
+            <aside class="no-print hidden lg:flex lg:flex-col lg:w-60 bg-white border-r border-slate-200 shrink-0">
+              <div class="p-4 border-b border-slate-100">
+                <p class="text-xs font-semibold text-slate-500">Navigasi</p>
+                <p class="text-xs text-slate-400 mt-0.5">Tahun Pelajaran ${esc(state.data.schoolProfile?.academicYear || '2025/2026')}</p>
+              </div>
+              <nav class="flex-1 p-3 space-y-1">
+                ${menus.map(m => `
+                  <button onclick="selectMenu('${m.id}')" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-left ${state.activeMenu===m.id ? 'bg-[#0F2547] text-white' : 'text-slate-700 hover:bg-slate-100'}">
+                    <i data-lucide="${m.icon}" class="w-4 h-4 ${state.activeMenu===m.id ? 'text-[#E0BD4F]' : 'text-slate-500'}"></i>
+                    <span class="truncate">${esc(m.label)}</span>
+                  </button>
+                `).join('')}
+              </nav>
+            </aside>
+
+            ${state.mobileDrawer ? `
+              <div class="no-print fixed inset-0 z-50 lg:hidden flex">
+                <div class="fixed inset-0 bg-slate-950/50" onclick="state.mobileDrawer=false; render();"></div>
+                <aside class="relative w-72 bg-white h-full z-10 flex flex-col p-3 space-y-1">
+                  <div class="flex items-center justify-between px-2 py-3 border-b border-slate-100 mb-2">
+                    <span class="font-bold text-sm text-[#0F2547]">${esc(schoolName)}</span>
+                    <button onclick="state.mobileDrawer=false; render();" class="p-1 text-slate-500"><i data-lucide="x" class="w-5 h-5"></i></button>
+                  </div>
+                  ${menus.map(m => `
+                    <button onclick="selectMenu('${m.id}')" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg text-left ${state.activeMenu===m.id ? 'bg-[#0F2547] text-white' : 'text-slate-700 hover:bg-slate-100'}">
+                      <i data-lucide="${m.icon}" class="w-4 h-4"></i>
+                      <span>${esc(m.label)}</span>
+                    </button>
+                  `).join('')}
+                </aside>
+              </div>` : ''}
+
+            <main class="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+              ${curMenu && curMenu.tabs.length ? `
+                <div class="no-print bg-white border border-slate-200 rounded-xl p-1.5 inline-flex flex-wrap gap-1 mb-5">
+                  ${curMenu.tabs.map(t => `
+                    <button onclick="state.subTab='${t}'; render();" class="px-4 py-2 text-xs font-semibold rounded-lg ${state.subTab===t ? 'bg-[#0F2547] text-white' : 'text-slate-600 hover:bg-slate-100'}">${esc(t)}</button>
+                  `).join('')}
+                </div>` : ''}
+              ${renderModuleBody()}
+            </main>
+          </div>
+        </div>
+      `;
+
+      lucide.createIcons();
+      initChartIfPresent();
+    }
+
+    initApp();
+  </script>
+</body>
+</html>

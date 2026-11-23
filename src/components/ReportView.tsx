@@ -876,6 +876,25 @@ export const ReportView: React.FC = () => {
         </div>
       )}
 
+      {activeReport && (
+        <button
+          type="button"
+          onClick={() => {
+            if (mode !== 'preview') {
+              setMode('preview');
+              setTimeout(() => window.print(), 80);
+            } else {
+              window.print();
+            }
+          }}
+          aria-label="Print Report"
+          className="no-print fixed bottom-6 right-6 z-40 inline-flex items-center gap-2.5 px-5 py-3 bg-[#0F2547] hover:bg-[#173463] text-white text-xs font-semibold rounded-xl border border-[#C9A227]/60 shadow-xl transition-all hover:-translate-y-0.5 cursor-pointer"
+        >
+          <Printer className="w-4 h-4 text-[#E0BD4F]" />
+          <span>Print Report</span>
+        </button>
+      )}
+
       <ConfirmModal
         open={Boolean(deleteTarget)}
         title="Hapus Dokumen Laporan?"
